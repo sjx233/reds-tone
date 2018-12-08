@@ -1,0 +1,45 @@
+{
+  "name": "reds-tone",
+  "version": "1.0.0",
+  "description": "Music in Minecraft 1.14+ datapacks.",
+  "keywords": [
+    "minecraft",
+    "resourcepack",
+    "datapack",
+    "function",
+    "redstone",
+    "music"
+  ],
+  "homepage": "https://github.com/sjx233/reds-tone#readme",
+  "bugs": "https://github.com/sjx233/reds-tone/issues",
+  "license": "MIT",
+  "author": "sjx233",
+  "main": "lib/index.js",
+  "typings": "lib/index",
+  "directories": {
+    "lib": "lib",
+    "test": "lib/test"
+  },
+  "repository": "github:sjx233/reds-tone",
+  "scripts": {
+    "lint": "tslint --project .",
+    "lint-fix": "tslint --project . --fix",
+    "build": "rm -rf lib && tsc",
+    "test": "node lib/test/test.js",
+    "preversion": "npm run build && npm test",
+    "postversion": "git push && git push --tags"
+  },
+  "dependencies": {
+    "minecraft-packs": "file:../minecraft-packs",
+    "resource-location": "^2.2.0",
+    "tslib": "^1.9.3"
+  },
+  "devDependencies": {
+    "@types/node": "^10.12.12",
+    "tslint": "^5.11.0",
+    "typescript": "^3.2.2"
+  },
+  "engines": {
+    "node": ">=7.6.0"
+  }
+}
