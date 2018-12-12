@@ -29,7 +29,7 @@ export class PlaySound extends Command {
       else if (minimumVolumeDefined) command += " 1";
       if (minimumVolumeDefined) command += " " + this.minimumVolume;
       return [command];
-    }).id;
+    });
     return time > 0 ? `schedule function ${functionName} ${time}` : `function ${functionName}`;
   }
 }
@@ -40,7 +40,7 @@ export class PlayTrack extends Command {
   }
 
   public toMinecraftCommand(time: number, context: ToFunctionContext) {
-    const functionName = this.track.getOrAddToContext(context).id;
+    const functionName = this.track.getOrAddToContext(context);
     return time > 0 ? `schedule function ${functionName} ${time}` : `function ${functionName}`;
   }
 }
