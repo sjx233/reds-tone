@@ -36,5 +36,5 @@ const repeatingTrack2 = repeatingTaskGroup.newTask()
   .then(repeatingTrack1, 4);
 repeatingTrack1.then(repeatingTrack2, 4);
 repeatingTaskGroup.addTo(pack);
-pack.addResource(new MinecraftFunction("musictest:repeating", [`function ${repeatingTrack1.functionId}`]));
+pack.addResource(new MinecraftFunction("musictest:repeating", [`function ${repeatingTrack1.functionId}`])); // DO NOT CALL THIS FUNCTION UNLESS YOU KNOW WHAT YOU ARE DOING!
 pack.write("test");
