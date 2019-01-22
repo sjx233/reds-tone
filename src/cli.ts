@@ -10,6 +10,7 @@ import { TaskGroup } from "task-function";
 import { Instrument, playSound, SoundSource } from "./index";
 
 commander
+  .name("reds-tone")
   .version("1.0.0")
   .description("Music in Minecraft 1.14+ datapacks.")
   .usage("[options] <file>")
@@ -22,6 +23,7 @@ commander
 const args = commander.args;
 const options = commander.opts();
 const fileName = args[0];
+if (!fileName) commander.help();
 if (!fs.existsSync(fileName)) throw new Error(`'${fileName}' does not exist`);
 const output = options.output;
 const packDescription = options.packDescription;
