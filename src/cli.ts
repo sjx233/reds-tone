@@ -58,13 +58,14 @@ let eventIndex = 0;
     }
     progressBar.tick();
     setImmediate(nextEvent);
-  } else {
+  } else (async () => {
+    progressBar = createProgressBar("converting notes to functions", taskGroup.taskCount());
     const pack = new Pack(PackType.DATA_PACK, packDescription);
-    taskGroup.addTo(pack);
+    await taskGroup.addTo(pack, () => progressBar.tick());
     pack.addResource(new MinecraftFunction(functionId, [`function ${track.functionId}`]));
     progressBar = createProgressBar("writing files", pack.resourceCount());
-    pack.write(output, () => progressBar.tick());
-  }
+    await pack.write(output, () => progressBar.tick());
+  })();
 })();
 
 function createProgressBar(action: string, total: number) {

@@ -34,7 +34,7 @@
     "commander": "^2.19.0",
     "midievents": "^2.0.0",
     "midifile": "^2.0.0",
-    "minecraft-packs": "file:../minecraft-packs",
+    "minecraft-packs": "^1.0.0",
     "progress": "^2.0.3",
     "resource-location": "^2.2.1",
     "task-function": "file:../task-function",
