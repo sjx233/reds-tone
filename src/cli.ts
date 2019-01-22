@@ -6,7 +6,7 @@ import MIDIEvents from "midievents";
 import MIDIFile from "midifile";
 import { MinecraftFunction, Pack, PackType } from "minecraft-packs";
 import ResourceLocation from "resource-location";
-import { TaskGroup } from "task-function";
+import { Task, TaskGroup } from "task-function";
 import { Instrument, playSound, SoundSource } from "./index";
 
 commander
@@ -33,16 +33,18 @@ const soundSource = options.soundSource;
 const midiFile = new MIDIFile(fs.readFileSync(fileName));
 const taskGroup = new TaskGroup(groupName);
 const track = taskGroup.newTask();
+const taskCache: { [key: string]: Task } = {};
 const instruments = [Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP];
 for (const event of midiFile.getMidiEvents().sort((a, b) => a.playTime - b.playTime)) {
   if (event.type === MIDIEvents.EVENT_MIDI) {
     const channel = event.channel!;
+    const param1 = event.param1!;
     switch (event.subtype) {
       case MIDIEvents.EVENT_MIDI_NOTE_ON:
-        track.then(taskGroup.newTask().then(playSound(channel === 10 ? instrumentFromNote(event.param1!) : instruments[channel], soundSource, event.param2! / 100, channel === 10 ? undefined : pitchFromNoteAndInstrument(instruments[channel], event.param1!))), event.playTime / 50);
+        track.then(getTask(channel === 10 ? instrumentFromNote(param1) : instruments[channel], event.param2!, channel === 10 ? 12 : pitchFromNoteAndInstrument(instruments[channel], param1)), event.playTime / 50);
         break;
       case MIDIEvents.EVENT_MIDI_PROGRAM_CHANGE:
-        instruments[channel] = instrumentFromMidiProgram(event.param1!);
+        instruments[channel] = instrumentFromMidiProgram(param1);
         break;
       default:
         break;
@@ -53,6 +55,13 @@ const pack = new Pack(PackType.DATA_PACK, packDescription);
 taskGroup.addTo(pack);
 pack.addResource(new MinecraftFunction(functionId, [`function ${track.functionId}`]));
 pack.write(output);
+
+function getTask(instrument: Instrument, velocity: number, pitchModifier: number) {
+  const key = `${instrument}_${velocity}_${pitchModifier}`;
+  const task = taskCache[key];
+  if (task) return task;
+  return taskCache[key] = taskGroup.newTask().then(playSound(instrument, soundSource, velocity / 100, 2 ** (pitchModifier / 12)));
+}
 
 function instrumentFromMidiProgram(program: number) {
   switch (program) {
