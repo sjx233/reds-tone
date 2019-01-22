@@ -5,6 +5,7 @@ import fs from "fs";
 import MIDIEvents from "midievents";
 import MIDIFile from "midifile";
 import { MinecraftFunction, Pack, PackType } from "minecraft-packs";
+import ProgressBar from "progress";
 import ResourceLocation from "resource-location";
 import { Task, TaskGroup } from "task-function";
 import { Instrument, playSound, SoundSource } from "./index";
@@ -30,36 +31,55 @@ const packDescription = options.packDescription;
 const functionId = new ResourceLocation(options.functionId);
 const groupName = options.groupName;
 const soundSource = options.soundSource;
-const midiFile = new MIDIFile(fs.readFileSync(fileName));
+const events = new MIDIFile(fs.readFileSync(fileName)).getMidiEvents().sort((a, b) => a.playTime - b.playTime);
+const eventCount = events.length;
 const taskGroup = new TaskGroup(groupName);
 const track = taskGroup.newTask();
 const taskCache: { [key: string]: Task } = {};
+let progressBar = createProgressBar("parsing events", eventCount);
 const instruments = [Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP];
-for (const event of midiFile.getMidiEvents().sort((a, b) => a.playTime - b.playTime)) {
-  if (event.type === MIDIEvents.EVENT_MIDI) {
-    const channel = event.channel!;
-    const param1 = event.param1!;
-    switch (event.subtype) {
-      case MIDIEvents.EVENT_MIDI_NOTE_ON:
-        track.then(getTask(channel === 10 ? instrumentFromNote(param1) : instruments[channel], event.param2!, channel === 10 ? 12 : pitchFromNoteAndInstrument(instruments[channel], param1)), event.playTime / 50);
-        break;
-      case MIDIEvents.EVENT_MIDI_PROGRAM_CHANGE:
-        instruments[channel] = instrumentFromMidiProgram(param1);
-        break;
-      default:
-        break;
+let eventIndex = 0;
+(function nextEvent() {
+  if (eventIndex < eventCount) {
+    const event = events[eventIndex++];
+    if (event.type === MIDIEvents.EVENT_MIDI) {
+      const channel = event.channel!;
+      const param1 = event.param1!;
+      switch (event.subtype) {
+        case MIDIEvents.EVENT_MIDI_NOTE_ON:
+          track.then(getTask(channel === 10 ? instrumentFromNote(param1) : instruments[channel], event.param2!, channel === 10 ? 12 : pitchModifierFromNoteAndInstrument(instruments[channel], param1)), event.playTime / 50);
+          break;
+        case MIDIEvents.EVENT_MIDI_PROGRAM_CHANGE:
+          instruments[channel] = instrumentFromMidiProgram(param1);
+          break;
+        default:
+          break;
+      }
     }
+    progressBar.tick();
+    setImmediate(nextEvent);
+  } else {
+    const pack = new Pack(PackType.DATA_PACK, packDescription);
+    taskGroup.addTo(pack);
+    pack.addResource(new MinecraftFunction(functionId, [`function ${track.functionId}`]));
+    progressBar = createProgressBar("writing files", pack.resourceCount());
+    pack.write(output, () => progressBar.tick());
   }
+})();
+
+function createProgressBar(action: string, total: number) {
+  return new ProgressBar("⸨:bar⸩ :current/:total " + action, {
+    clear: true,
+    complete: "░",
+    incomplete: "⠂",
+    total,
+    width: 18
+  });
 }
-const pack = new Pack(PackType.DATA_PACK, packDescription);
-taskGroup.addTo(pack);
-pack.addResource(new MinecraftFunction(functionId, [`function ${track.functionId}`]));
-pack.write(output);
 
 function getTask(instrument: Instrument, velocity: number, pitchModifier: number) {
-  const key = `${instrument}_${velocity}_${pitchModifier}`;
-  const task = taskCache[key];
-  if (task) return task;
+  const key = `${instrument} ${velocity} ${pitchModifier}`;
+  if (key in taskCache) return taskCache[key];
   return taskCache[key] = taskGroup.newTask().then(playSound(instrument, soundSource, velocity / 100, 2 ** (pitchModifier / 12)));
 }
 
@@ -142,10 +162,10 @@ function instrumentFromNote(note: number) {
   }
 }
 
-function pitchFromNoteAndInstrument(instrument: Instrument, note: number) {
+function pitchModifierFromNoteAndInstrument(instrument: Instrument, note: number) {
   const offset = noteOffset(instrument);
   if (offset === -1) return 1;
-  return 2 ** ((note + 1 - offset) / 12);
+  return note + 1 - offset;
 }
 
 function noteOffset(instrument: Instrument) {
