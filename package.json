@@ -16,6 +16,7 @@
   "author": "sjx233",
   "main": "lib/index.js",
   "typings": "lib/index",
+  "bin": "./lib/cli.js",
   "directories": {
     "lib": "lib",
     "test": "lib/test"
@@ -25,17 +26,21 @@
     "lint": "tslint --project .",
     "lint-fix": "tslint --project . --fix",
     "build": "rm -rf lib && tsc",
-    "test": "node lib/test/test.js",
+    "test": "node lib/test/test.js && node lib/cli.js -o test/cli -d \"CLI Test.\" -f \"clitest:play\" -g \"cli_test\" test/cli.mid",
     "preversion": "npm run build && npm test",
     "postversion": "git push && git push --tags"
   },
   "dependencies": {
+    "commander": "^2.19.0",
+    "midievents": "^2.0.0",
+    "midifile": "^2.0.0",
     "minecraft-packs": "file:../minecraft-packs",
     "resource-location": "^2.2.1",
     "task-function": "file:../task-function",
     "tslib": "^1.9.3"
   },
   "devDependencies": {
+    "@types/fs-extra": "^5.0.4",
     "@types/node": "^10.12.18",
     "tslint": "^5.12.1",
     "typescript": "^3.2.4"
