@@ -1,6 +1,6 @@
 {
   "name": "reds-tone",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Music in Minecraft 1.14+ datapacks.",
   "keywords": [
     "minecraft",
@@ -37,7 +37,7 @@
     "minecraft-packs": "^1.0.0",
     "progress": "^2.0.3",
     "resource-location": "^2.2.1",
-    "task-function": "file:../task-function",
+    "task-function": "^1.0.0",
     "tslib": "^1.9.3"
   },
   "devDependencies": {
