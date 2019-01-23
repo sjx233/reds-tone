@@ -32,15 +32,17 @@
   },
   "dependencies": {
     "commander": "^2.19.0",
+    "ecma-proposal-math-extensions": "0.0.2",
     "midievents": "^2.0.0",
     "midifile": "^2.0.0",
     "minecraft-packs": "^1.0.2",
     "progress": "^2.0.3",
-    "resource-location": "^2.2.1",
+    "resource-location": "^3.0.0",
     "task-function": "^1.0.2",
     "tslib": "^1.9.3"
   },
   "devDependencies": {
+    "@types/ecma-proposal-math-extensions": "0.0.0",
     "@types/fs-extra": "^5.0.4",
     "@types/node": "^10.12.18",
     "@types/progress": "^2.0.3",
