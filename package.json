@@ -1,5 +1,5 @@
 {
-  "name": "reds-tone",
+  "name": "@sjx233/reds-tone",
   "version": "0.1.0",
   "description": "Music in Minecraft 1.14+ datapacks.",
   "keywords": [
@@ -34,10 +34,10 @@
     "commander": "^2.19.0",
     "midievents": "^2.0.0",
     "midifile": "^2.0.0",
-    "minecraft-packs": "^1.0.1",
+    "minecraft-packs": "^1.0.2",
     "progress": "^2.0.3",
     "resource-location": "^2.2.1",
-    "task-function": "^1.0.1",
+    "task-function": "^1.0.2",
     "tslib": "^1.9.3"
   },
   "devDependencies": {
@@ -48,6 +48,6 @@
     "typescript": "^3.2.4"
   },
   "engines": {
-    "node": ">=7.6.0"
+    "node": ">=10.0.0"
   }
 }
