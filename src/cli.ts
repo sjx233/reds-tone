@@ -19,50 +19,148 @@ commander
   .option("-d, --pack-description <description>", "Data pack description.", "")
   .option("-f, --function-id <id>", "Function ID.", "music:play")
   .option("-g, --group-name <name>", "Task group name.", "music")
-  .option("-s, --sound-source <source>", "Play sound from <source>.", /^(ambient|block|hostile|master|music|neutral|player|record|voice|weather)$/, SoundSource.RECORD)
+  .option("-s, --sound-source <source>", "Play sound from <source>.", /^(master|music|record|weather|block|hostile|neutral|player|ambient|voice)$/, SoundSource.RECORD)
   .parse(process.argv);
 const args = commander.args;
 const options = commander.opts();
 const fileName = args[0];
 if (!fileName) commander.help();
 if (!fs.existsSync(fileName)) throw new Error(`'${fileName}' does not exist`);
-const output = options.output;
-const packDescription = options.packDescription;
-const functionId = new ResourceLocation(options.functionId);
-const groupName = options.groupName;
-const soundSource = options.soundSource;
-const events = new MIDIFile(fs.readFileSync(fileName)).getMidiEvents().sort((a, b) => a.playTime - b.playTime);
+const { output, packDescription, functionId, groupName, soundSource } = options;
+const functionIdLocation = new ResourceLocation(functionId);
+
+abstract class Channel {
+  public constructor() { }
+
+  public parseEvent(track: Task, taskCache: { [key: string]: Task }, event: MIDIFile.SequentiallyReadEvent | MIDIFile.ConcurrentlyReadEvent) {
+    const param1 = event.param1!;
+    switch (event.subtype) {
+      case MIDIEvents.EVENT_MIDI_NOTE_ON:
+        this.playNote(track, taskCache, event.playTime * 0.02, param1, event.param2! * 0.01);
+        break;
+      case MIDIEvents.EVENT_MIDI_PROGRAM_CHANGE:
+        this.programChange(param1);
+        break;
+      default:
+        break;
+    }
+  }
+
+  protected abstract playNote(track: Task, taskCache: { [key: string]: Task }, playTime: number, note: number, velocity: number): void;
+
+  protected abstract programChange(program: number): void;
+
+  protected static getTask(taskCache: { [key: string]: Task }, instrument: Instrument, velocity: number, pitchModifier: number) {
+    const key = `${instrument} ${velocity} ${pitchModifier}`;
+    if (key in taskCache) return taskCache[key];
+    return taskCache[key] = taskGroup.newTask().then(playSound(instrument, soundSource, velocity, 2 ** (pitchModifier / 12)));
+  }
+}
+
+class NormalChannel extends Channel {
+  private instrument = Instrument.HARP;
+
+  public constructor() {
+    super();
+  }
+
+  protected playNote(track: Task, taskCache: { [key: string]: Task }, playTime: number, note: number, velocity: number) {
+    const [instrument, pitchModifier] = NormalChannel.transformNote(this.instrument, note);
+    track.then(Channel.getTask(taskCache, instrument, velocity, pitchModifier), playTime);
+  }
+
+  protected programChange(program: number) {
+    this.instrument = NormalChannel.instrumentFromProgram(program);
+  }
+
+  private static instrumentFromProgram(program: number) {
+    if (program === 13) return Instrument.XYLOPHONE;
+    if (program === 14) return Instrument.BELL;
+    if (program >= 24 && program <= 31) return Instrument.GUITAR;
+    if (program >= 32 && program <= 39) return Instrument.BASS;
+    if (program >= 72 && program <= 79) return Instrument.FLUTE;
+    return Instrument.HARP;
+  }
+
+  private static transformNote(instrument: Instrument, note: number): [Instrument, number] {
+    const offset = NormalChannel.noteOffset(instrument);
+    if (offset === -1) return [instrument, 12];
+    const pitchModifier = note + 1 - offset;
+    if (instrument === Instrument.HARP) if (pitchModifier > 24) return [Instrument.BELL, pitchModifier - 24];
+    else if (pitchModifier < 0 && pitchModifier >= -18) return [Instrument.GUITAR, pitchModifier + 12];
+    else if (pitchModifier < -18) return [Instrument.BASS, pitchModifier + 48];
+    return [instrument, pitchModifier];
+  }
+
+  private static noteOffset(instrument: Instrument) {
+    switch (instrument) {
+      case Instrument.BASS:
+        return 18;
+      case Instrument.GUITAR:
+        return 54;
+      case Instrument.HARP:
+        return 66;
+      case Instrument.FLUTE:
+        return 78;
+      case Instrument.BELL:
+      case Instrument.CHIME:
+      case Instrument.XYLOPHONE:
+        return 90;
+      default:
+        return -1;
+    }
+  }
+}
+
+class Channel10 extends Channel {
+  private static readonly SNARE_NOTE_IDS: ReadonlyArray<number> = [36, 37, 39, 48, 50, 51, 53, 54, 56, 57, 58, 68, 69];
+  private static readonly HAT_NOTE_IDS: ReadonlyArray<number> = [41, 43, 45, 72, 73, 74, 75, 76];
+  private static readonly BELL_NOTE_IDS: ReadonlyArray<number> = [52, 55, 66, 67];
+
+  public constructor() {
+    super();
+  }
+
+  protected playNote(track: Task, taskCache: { [key: string]: Task }, playTime: number, note: number, velocity: number) {
+    track.then(Channel.getTask(taskCache, Channel10.instrumentFromNote(note), velocity, 12), playTime);
+  }
+
+  protected programChange() { } // TODO what?
+
+  private static instrumentFromNote(note: number) {
+    if (Channel10.SNARE_NOTE_IDS.includes(note)) return Instrument.SNARE;
+    if (Channel10.HAT_NOTE_IDS.includes(note)) return Instrument.HAT;
+    if (Channel10.BELL_NOTE_IDS.includes(note)) return Instrument.BELL;
+    if (note === 70 || note === 71) return Instrument.FLUTE;
+    if (note === 79 || note === 80) return Instrument.CHIME;
+    return Instrument.BASEDRUM;
+  }
+}
+
+const events = new MIDIFile(fs.readFileSync(fileName)).getMidiEvents();
 const eventCount = events.length;
 const taskGroup = new TaskGroup(groupName);
 const track = taskGroup.newTask();
 const taskCache: { [key: string]: Task } = {};
 let progressBar = createProgressBar("parsing events", eventCount);
-const instruments = [Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP, Instrument.HARP];
+const channels: Channel[] = [];
 let eventIndex = 0;
 (function nextEvent() {
   if (eventIndex < eventCount) {
-    const event = events[eventIndex++];
+    const event = events[eventIndex];
+    delete events[eventIndex];
     if (event.type === MIDIEvents.EVENT_MIDI) {
-      const channel = event.channel!;
-      const param1 = event.param1!;
-      switch (event.subtype) {
-        case MIDIEvents.EVENT_MIDI_NOTE_ON:
-          track.then(getTask(channel === 10 ? instrumentFromNote(param1) : instruments[channel], event.param2!, channel === 10 ? 12 : pitchModifierFromNoteAndInstrument(instruments[channel], param1)), event.playTime / 50);
-          break;
-        case MIDIEvents.EVENT_MIDI_PROGRAM_CHANGE:
-          instruments[channel] = instrumentFromMidiProgram(param1);
-          break;
-        default:
-          break;
-      }
+      const channelId = event.channel!;
+      (channels[channelId] || (channels[channelId] = channelId === 10 ? new Channel10 : new NormalChannel)).parseEvent(track, taskCache, event);
     }
+    eventIndex++;
     progressBar.tick();
     setImmediate(nextEvent);
   } else (async () => {
     progressBar = createProgressBar("converting notes to functions", taskGroup.taskCount());
     const pack = new Pack(PackType.DATA_PACK, packDescription);
     await taskGroup.addTo(pack, () => progressBar.tick());
-    pack.addResource(new MinecraftFunction(functionId, [`function ${track.functionId}`]));
+    pack.addResource(new MinecraftFunction(functionIdLocation, [`function ${track.functionId}`]));
     progressBar = createProgressBar("writing files", pack.resourceCount());
     await pack.write(output, () => progressBar.tick());
   })();
@@ -76,116 +174,4 @@ function createProgressBar(action: string, total: number) {
     total,
     width: 18
   });
-}
-
-function getTask(instrument: Instrument, velocity: number, pitchModifier: number) {
-  const key = `${instrument} ${velocity} ${pitchModifier}`;
-  if (key in taskCache) return taskCache[key];
-  return taskCache[key] = taskGroup.newTask().then(playSound(instrument, soundSource, velocity / 100, 2 ** (pitchModifier / 12)));
-}
-
-function instrumentFromMidiProgram(program: number) {
-  switch (program) {
-    case 13:
-      return Instrument.XYLOPHONE;
-    case 14:
-      return Instrument.BELL;
-    case 24:
-    case 25:
-    case 26:
-    case 27:
-    case 28:
-    case 29:
-    case 30:
-    case 31:
-      return Instrument.GUITAR;
-    case 32:
-    case 33:
-    case 34:
-    case 35:
-    case 36:
-    case 37:
-    case 38:
-    case 39:
-      return Instrument.BASS;
-    case 72:
-    case 73:
-    case 74:
-    case 75:
-    case 76:
-    case 77:
-    case 78:
-    case 79:
-      return Instrument.FLUTE;
-    default:
-      return Instrument.HARP;
-  }
-}
-
-function instrumentFromNote(note: number) {
-  switch (note) {
-    case 36:
-    case 37:
-    case 39:
-    case 48:
-    case 50:
-    case 51:
-    case 53:
-    case 54:
-    case 56:
-    case 57:
-    case 58:
-    case 68:
-    case 69:
-      return Instrument.SNARE;
-    case 41:
-    case 43:
-    case 45:
-    case 72:
-    case 73:
-    case 74:
-    case 75:
-    case 76:
-      return Instrument.HAT;
-    case 52:
-    case 55:
-    case 66:
-    case 67:
-      return Instrument.BELL;
-    case 70:
-    case 71:
-      return Instrument.FLUTE;
-    case 79:
-    case 80:
-      return Instrument.CHIME;
-    default:
-      return Instrument.BASEDRUM;
-  }
-}
-
-function pitchModifierFromNoteAndInstrument(instrument: Instrument, note: number) {
-  const offset = noteOffset(instrument);
-  if (offset === -1) return 1;
-  return note + 1 - offset;
-}
-
-function noteOffset(instrument: Instrument) {
-  switch (instrument) {
-    case Instrument.BASS:
-      return 18;
-    case Instrument.BELL:
-      return 90;
-    case Instrument.FLUTE:
-      return 78;
-    case Instrument.CHIME:
-      return 90;
-    case Instrument.GUITAR:
-      return 54;
-    case Instrument.XYLOPHONE:
-      return 90;
-    case Instrument.HARP:
-      return 66;
-    default:
-      return -1;
-  }
 }

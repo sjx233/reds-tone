@@ -2,7 +2,7 @@ import { MinecraftFunction, Pack, PackType } from "minecraft-packs";
 import { TaskGroup } from "task-function";
 import { Instrument, playSound, SoundSource } from "../index";
 
-const pack = new Pack(PackType.DATA_PACK, "Test music.");
+const pack = new Pack(PackType.DATA_PACK, "API Test.");
 const simpleTaskGroup = new TaskGroup("simple");
 const simpleC4 = simpleTaskGroup.newTask().then(playSound(Instrument.HARP, SoundSource.RECORD, 1, 2 ** (-6 / 12)));
 const simpleD4 = simpleTaskGroup.newTask().then(playSound(Instrument.HARP, SoundSource.RECORD, 1, 2 ** (-4 / 12)));
@@ -25,7 +25,7 @@ const simpleFinalTrack = simpleTaskGroup.newTask()
   .then(simpleB4, 80)
   .then(simpleC5, 88);
 simpleTaskGroup.addTo(pack);
-pack.addResource(new MinecraftFunction("musictest:simple", [`function ${simpleFinalTrack.functionId}`]));
+pack.addResource(new MinecraftFunction("apitest:simple", [`function ${simpleFinalTrack.functionId}`]));
 const repeatingTaskGroup = new TaskGroup("repeating");
 const repeatingNote1 = repeatingTaskGroup.newTask().then(playSound(Instrument.HARP, SoundSource.RECORD, 1, 2 ** (-6 / 12)));
 const repeatingNote2 = repeatingTaskGroup.newTask().then(playSound(Instrument.HARP, SoundSource.RECORD, 1, 2 ** (-4 / 12)));
@@ -36,5 +36,5 @@ const repeatingTrack2 = repeatingTaskGroup.newTask()
   .then(repeatingTrack1, 4);
 repeatingTrack1.then(repeatingTrack2, 4);
 repeatingTaskGroup.addTo(pack);
-pack.addResource(new MinecraftFunction("musictest:repeating", [`function ${repeatingTrack1.functionId}`])); // DO NOT CALL THIS FUNCTION UNLESS YOU KNOW WHAT YOU ARE DOING!
+pack.addResource(new MinecraftFunction("apitest:repeating", [`function ${repeatingTrack1.functionId}`])); // DO NOT CALL THIS FUNCTION UNLESS YOU KNOW WHAT YOU ARE DOING!
 pack.write("test/api");
