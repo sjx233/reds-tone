@@ -38,7 +38,7 @@
     "minecraft-packs": "^1.0.2",
     "progress": "^2.0.3",
     "resource-location": "^3.0.0",
-    "task-function": "^1.0.2",
+    "task-function": "^2.0.1",
     "tslib": "^1.9.3"
   },
   "devDependencies": {

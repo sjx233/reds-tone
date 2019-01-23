@@ -12,7 +12,7 @@ import { Instrument, playSound, SoundSource } from "./index";
 
 commander
   .name("reds-tone")
-  .version("1.0.0")
+  .version("1.0.2")
   .description("Music in Minecraft 1.14+ datapacks.")
   .usage("[options] <file>")
   .option("-o, --output <file>", "Place the output into <file>.", "out")
