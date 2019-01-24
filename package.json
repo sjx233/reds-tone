@@ -26,7 +26,7 @@
     "lint": "tslint --project .",
     "lint-fix": "tslint --project . --fix",
     "build": "rm -rf lib && tsc",
-    "test": "node lib/test/test.js && node lib/cli.js -o test/cli1 -d \"CLI Test 1.\" -f \"clitest1:play\" -g \"cli_test_1\" test/cli1.mid && node lib/cli.js -o test/cli2 -d \"CLI Test 2.\" -f \"clitest2:play\" -g \"cli_test_2\" test/cli2.mid",
+    "test": "node lib/test/test.js",
     "preversion": "npm run build && npm test",
     "postversion": "git push && git push --tags"
   },
