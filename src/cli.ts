@@ -12,7 +12,7 @@ import { Instrument, playSound, SoundSource } from "./index";
 
 commander
   .name("reds-tone")
-  .version("1.0.3")
+  .version("1.0.4")
   .description("Music in Minecraft 1.14+ datapacks.")
   .usage("[options] <file>")
   .option("-o, --output <file>", "Place the output into <file>.", "out")
@@ -136,7 +136,7 @@ class Channel10 extends Channel {
   }
 }
 
-const events = new MIDIFile(fs.readFileSync(fileName === "-" ? 1 : fs.openSync(fileName, "r"))).getMidiEvents();
+const events = new MIDIFile(fs.readFileSync(fileName === "-" ? 0 : fs.openSync(fileName, "r"))).getMidiEvents();
 const eventCount = events.length;
 const taskGroup = new TaskGroup(groupName);
 const track = taskGroup.newTask();
