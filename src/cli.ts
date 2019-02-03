@@ -9,11 +9,12 @@ import ProgressBar from "progress";
 import ResourceLocation from "resource-location";
 import { Task, TaskGroup } from "task-function";
 import { Instrument, playSound, SoundSource } from "./index";
+import { description, name, version } from "./version";
 
 commander
-  .name("reds-tone")
-  .version("1.0.4")
-  .description("Music in Minecraft 1.14+ datapacks.")
+  .name(name)
+  .version(version)
+  .description(description)
   .usage("[options] <file>")
   .option("-o, --output <file>", "Place the output into <file>.", "out")
   .option("-d, --pack-description <description>", "Data pack description.", "")
@@ -35,7 +36,9 @@ abstract class Channel {
     const param1 = event.param1!;
     switch (event.subtype) {
       case MIDIEvents.EVENT_MIDI_NOTE_ON:
-        this.playNote(track, taskCache, event.playTime * 0.02, param1, event.param2! * 0.01);
+        const playTime = event.playTime * 0.02;
+        const { instrument, pitchModifier } = this.playNote(param1 + 1, playTime);
+        track.then(Channel.getTask(taskCache, instrument, event.param2!, pitchModifier), playTime);
         break;
       case MIDIEvents.EVENT_MIDI_PROGRAM_CHANGE:
         this.programChange(param1);
@@ -45,27 +48,47 @@ abstract class Channel {
     }
   }
 
-  protected abstract playNote(track: Task, taskCache: { [key: string]: Task }, playTime: number, note: number, velocity: number): void;
+  protected abstract playNote(note: number, playTime: number): {
+    instrument: Instrument,
+    pitchModifier: number
+  };
 
   protected abstract programChange(program: number): void;
 
   protected static getTask(taskCache: { [key: string]: Task }, instrument: Instrument, velocity: number, pitchModifier: number) {
     const key = `${instrument} ${velocity} ${pitchModifier}`;
     if (key in taskCache) return taskCache[key];
-    return taskCache[key] = taskGroup.newTask().then(playSound(instrument, soundSource, velocity, 2 ** (pitchModifier / 12)));
+    return taskCache[key] = taskGroup.newTask().then(playSound(instrument, soundSource, velocity * 0.01, 2 ** (pitchModifier / 12)));
   }
 }
 
 class NormalChannel extends Channel {
+  private static readonly HARP_LIKE_INSTRUMENTS: { readonly [key: string]: number; } = {
+    [Instrument.BELL]: 90,
+    [Instrument.HARP]: 66,
+    [Instrument.GUITAR]: 54,
+    [Instrument.BASS]: 18
+  };
   private instrument = Instrument.HARP;
 
   public constructor() {
     super();
   }
 
-  protected playNote(track: Task, taskCache: { [key: string]: Task }, playTime: number, note: number, velocity: number) {
-    const [instrument, pitchModifier] = NormalChannel.transformNote(this.instrument, note);
-    track.then(Channel.getTask(taskCache, instrument, velocity, pitchModifier), playTime);
+  protected playNote(note: number, playTime: number) {
+    const originalInstrument = this.instrument;
+    const instrument = NormalChannel.transformInstrument(originalInstrument, note);
+    const offset = NormalChannel.noteOffset(instrument);
+    if (!offset) return {
+      instrument,
+      pitchModifier: 0
+    };
+    const pitchModifier = note - offset - 12;
+    if (pitchModifier > 12 || pitchModifier < -12) process.stderr.write(`failed to correct note at ${Math.round(playTime)}: ${originalInstrument === instrument ? `using ${instrument}, got ${pitchModifier}` : `tried ${originalInstrument} -> ${instrument}, still got ${pitchModifier}`}\n`);
+    return {
+      instrument,
+      pitchModifier
+    };
   }
 
   protected programChange(program: number) {
@@ -81,47 +104,46 @@ class NormalChannel extends Channel {
     return Instrument.HARP;
   }
 
-  private static transformNote(instrument: Instrument, note: number): [Instrument, number] {
-    const offset = NormalChannel.noteOffset(instrument);
-    if (offset === -1) return [instrument, 12];
-    const pitchModifier = note + 1 - offset;
-    if (instrument === Instrument.HARP) if (pitchModifier > 24) return [Instrument.BELL, pitchModifier - 24];
-    else if (pitchModifier < 0 && pitchModifier >= -18) return [Instrument.GUITAR, pitchModifier + 12];
-    else if (pitchModifier < -18) return [Instrument.BASS, pitchModifier + 48];
-    return [instrument, pitchModifier];
+  private static transformInstrument(instrument: Instrument, note: number) {
+    const harpLikeInstruments = NormalChannel.HARP_LIKE_INSTRUMENTS;
+    const originalOffset = harpLikeInstruments[instrument];
+    if (originalOffset) return Object.entries(harpLikeInstruments).map(([instrument, offset]) => [instrument, Math.abs(originalOffset - offset), Math.abs(note - (offset + 12))] as [Instrument, number, number]).reduce((previous, current) => {
+      const previousDistance = previous[2];
+      const currentDistance = current[2];
+      return currentDistance > previousDistance || (currentDistance === previousDistance && current[1] > previous[1]) ? previous : current;
+    })[0];
+    return instrument;
   }
 
   private static noteOffset(instrument: Instrument) {
+    const harpLike = NormalChannel.HARP_LIKE_INSTRUMENTS[instrument];
+    if (harpLike) return harpLike;
     switch (instrument) {
-      case Instrument.BASS:
-        return 18;
-      case Instrument.GUITAR:
-        return 54;
-      case Instrument.HARP:
-        return 66;
       case Instrument.FLUTE:
         return 78;
-      case Instrument.BELL:
       case Instrument.CHIME:
       case Instrument.XYLOPHONE:
         return 90;
       default:
-        return -1;
+        return undefined;
     }
   }
 }
 
 class Channel10 extends Channel {
-  private static readonly SNARE_NOTE_IDS: ReadonlyArray<number> = [36, 37, 39, 48, 50, 51, 53, 54, 56, 57, 58, 68, 69];
-  private static readonly HAT_NOTE_IDS: ReadonlyArray<number> = [41, 43, 45, 72, 73, 74, 75, 76];
-  private static readonly BELL_NOTE_IDS: ReadonlyArray<number> = [52, 55, 66, 67];
+  private static readonly SNARE_NOTE_IDS: ReadonlyArray<number> = [37, 38, 40, 49, 51, 52, 54, 55, 57, 58, 59, 69, 70];
+  private static readonly HAT_NOTE_IDS: ReadonlyArray<number> = [42, 44, 46, 73, 74, 75, 76, 77];
+  private static readonly BELL_NOTE_IDS: ReadonlyArray<number> = [53, 56, 67, 68];
 
   public constructor() {
     super();
   }
 
-  protected playNote(track: Task, taskCache: { [key: string]: Task }, playTime: number, note: number, velocity: number) {
-    track.then(Channel.getTask(taskCache, Channel10.instrumentFromNote(note), velocity, 12), playTime);
+  protected playNote(note: number) {
+    return {
+      instrument: Channel10.instrumentFromNote(note),
+      pitchModifier: 0
+    };
   }
 
   protected programChange() { } // TODO what?
@@ -130,8 +152,8 @@ class Channel10 extends Channel {
     if (Channel10.SNARE_NOTE_IDS.includes(note)) return Instrument.SNARE;
     if (Channel10.HAT_NOTE_IDS.includes(note)) return Instrument.HAT;
     if (Channel10.BELL_NOTE_IDS.includes(note)) return Instrument.BELL;
-    if (note === 70 || note === 71) return Instrument.FLUTE;
-    if (note === 79 || note === 80) return Instrument.CHIME;
+    if (note === 71 || note === 72) return Instrument.FLUTE;
+    if (note === 80 || note === 81) return Instrument.CHIME;
     return Instrument.BASEDRUM;
   }
 }
