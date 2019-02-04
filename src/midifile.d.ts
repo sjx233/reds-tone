@@ -16,7 +16,7 @@ declare class MIDIFile {
 
 declare namespace MIDIFile {
   type SequentiallyReadEvent = MIDIEvents.Event & { playTime: number };
-  type ConcurrentlyReadEvent = MIDIEvents.Event & { playTime: number, track: number };
+  type ConcurrentlyReadEvent = SequentiallyReadEvent & { track: number };
   type SequentiallyReadLyricEvent = SequentiallyReadEvent & { text: string };
   type ConcurrentlyReadLyricEvent = ConcurrentlyReadEvent & { text: string };
 

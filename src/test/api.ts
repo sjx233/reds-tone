@@ -3,7 +3,7 @@ import { TaskGroup } from "task-function";
 import { Instrument, playSound, SoundSource } from "../index";
 
 const pack = new Pack(PackType.DATA_PACK, "API Test.");
-const simpleTaskGroup = new TaskGroup("simple");
+const simpleTaskGroup = new TaskGroup("api_test_simple");
 const simpleC4 = simpleTaskGroup.newTask().then(playSound(Instrument.HARP, SoundSource.RECORD, 1, 2 ** (-6 / 12)));
 const simpleD4 = simpleTaskGroup.newTask().then(playSound(Instrument.HARP, SoundSource.RECORD, 1, 2 ** (-4 / 12)));
 const simpleE4 = simpleTaskGroup.newTask().then(playSound(Instrument.HARP, SoundSource.RECORD, 1, 2 ** (-2 / 12)));
@@ -26,7 +26,7 @@ const simpleFinalTrack = simpleTaskGroup.newTask()
   .then(simpleC5, 88);
 simpleTaskGroup.addTo(pack);
 pack.addResource(new MinecraftFunction("apitest:simple", [`function ${simpleFinalTrack.functionId}`]));
-const repeatingTaskGroup = new TaskGroup("repeating");
+const repeatingTaskGroup = new TaskGroup("api_test_repeating");
 const repeatingNote1 = repeatingTaskGroup.newTask().then(playSound(Instrument.HARP, SoundSource.RECORD, 1, 2 ** (-6 / 12)));
 const repeatingNote2 = repeatingTaskGroup.newTask().then(playSound(Instrument.HARP, SoundSource.RECORD, 1, 2 ** (-4 / 12)));
 const repeatingTrack1 = repeatingTaskGroup.newTask()

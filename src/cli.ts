@@ -16,18 +16,29 @@ commander
   .version(version)
   .description(description)
   .usage("[options] <file>")
-  .option("-o, --output <file>", "Place the output into <file>.", "out")
-  .option("-d, --pack-description <description>", "Data pack description.", "")
-  .option("-f, --function-id <id>", "Function ID.", "music:play")
-  .option("-g, --group-name <name>", "Task group name.", "music")
-  .option("-s, --sound-source <source>", "Play sound from <source>.", /^(master|music|record|weather|block|hostile|neutral|player|ambient|voice)$/, SoundSource.RECORD)
+  .option("-o, --output <file>", "place the output into <file>.", "out")
+  .option("-d, --pack-description <description>", "specify data pack description", "")
+  .option("-f, --function-id <id>", "function ID", "music:play")
+  .option("-g, --group-name <name>", "task group name", "music")
+  .option("-s, --sound-source <source>", "play sound from <source>", /^(master|music|record|weather|block|hostile|neutral|player|ambient|voice)$/, SoundSource.RECORD)
+  .option("-p, --progress", "show progress information")
+  .option("-w, --bar-width <width>", "show progress bar", /^\d+$/, "0")
   .parse(process.argv);
 const args = commander.args;
 const options = commander.opts();
 const fileName = args[0];
 if (!fileName) commander.help();
-const { output, packDescription, functionId, groupName, soundSource } = options;
-const functionIdLocation = new ResourceLocation(functionId);
+const { output, packDescription, functionId, groupName, soundSource, progress, barWidth } = options as {
+  output: string,
+  packDescription: string,
+  functionId: string,
+  groupName: string,
+  soundSource: SoundSource,
+  progress?: true,
+  barWidth: string
+};
+const functionLocation = new ResourceLocation(functionId);
+const progressBarWidth = parseInt(barWidth, 10);
 
 abstract class Channel {
   public constructor() { }
@@ -84,7 +95,7 @@ class NormalChannel extends Channel {
       pitchModifier: 0
     };
     const pitchModifier = note - offset - 12;
-    if (pitchModifier > 12 || pitchModifier < -12) process.stderr.write(`failed to correct note at ${Math.round(playTime)}: ${originalInstrument === instrument ? `using ${instrument}, got ${pitchModifier}` : `tried ${originalInstrument} -> ${instrument}, still got ${pitchModifier}`}\n`);
+    if (pitchModifier > 12 || pitchModifier < -12) log(process.stderr, `failed to correct note at ${Math.round(playTime)}: ${originalInstrument === instrument ? `using ${instrument}, got ${pitchModifier}` : `tried ${originalInstrument} -> ${instrument}, still got ${pitchModifier}`}`);
     return {
       instrument,
       pitchModifier
@@ -158,18 +169,19 @@ class Channel10 extends Channel {
   }
 }
 
-const events = new MIDIFile(fs.readFileSync(fileName === "-" ? 0 : fs.openSync(fileName, "r"))).getMidiEvents();
+const events: MIDIFile.SequentiallyReadEvent[] = new MIDIFile(fs.readFileSync(fileName === "-" ? 0 : fs.openSync(fileName, "r"))).getMidiEvents();
 const eventCount = events.length;
 const taskGroup = new TaskGroup(groupName);
 const track = taskGroup.newTask();
 const taskCache: { [key: string]: Task } = {};
+const progressBarComplete = "█";
+const progressBarIncomplete = "░";
 let progressBar = createProgressBar("parsing events", eventCount);
 const channels: Channel[] = [];
 let eventIndex = 0;
 (function nextEvent() {
   if (eventIndex < eventCount) {
     const event = events[eventIndex];
-    delete events[eventIndex];
     if (event.type === MIDIEvents.EVENT_MIDI) {
       const channelId = event.channel!;
       (channels[channelId] || (channels[channelId] = channelId === 10 ? new Channel10 : new NormalChannel)).parseEvent(track, taskCache, event);
@@ -178,10 +190,33 @@ let eventIndex = 0;
     progressBar.tick();
     setImmediate(nextEvent);
   } else (async () => {
+    if (progress || progressBarWidth) {
+      const length = Math.round(Math.max(...events.map(event => event.playTime)) * 0.02);
+      const totalTime = formatTime(length * 0.05);
+      for (let i = 0; i < length; i++) {
+        const time = formatTime(i * 0.05);
+        let text = "";
+        if (progressBarWidth) {
+          const completeLength = Math.round(progressBarWidth * (i / length));
+          text += "⸨";
+          for (let i = 0; i < completeLength; i++) text += progressBarComplete;
+          for (let i = progressBarWidth; i > completeLength; i--) text += progressBarIncomplete;
+          text += "⸩";
+        }
+        if (progress) {
+          if (text) text += " ";
+          text += time;
+          text += "/";
+          text += totalTime;
+        }
+        track.then(taskGroup.newTask().then(`title @a actionbar {"text":${JSON.stringify(text)},"color":"black"}`), i);
+      }
+      track.then(taskGroup.newTask().then("title @a actionbar \"\""), length);
+    }
     progressBar = createProgressBar("converting notes to functions", taskGroup.taskCount());
     const pack = new Pack(PackType.DATA_PACK, packDescription);
     await taskGroup.addTo(pack, () => progressBar.tick());
-    pack.addResource(new MinecraftFunction(functionIdLocation, [`function ${track.functionId}`]));
+    pack.addResource(new MinecraftFunction(functionLocation, [`function ${track.functionId}`]));
     progressBar = createProgressBar("writing files", pack.resourceCount());
     await pack.write(output, () => progressBar.tick());
   })();
@@ -190,9 +225,22 @@ let eventIndex = 0;
 function createProgressBar(action: string, total: number) {
   return new ProgressBar("⸨:bar⸩ :current/:total " + action, {
     clear: true,
-    complete: "░",
-    incomplete: "⠂",
+    complete: progressBarComplete,
+    incomplete: progressBarIncomplete,
     total,
     width: 18
   });
+}
+
+function formatTime(seconds: number) {
+  const minutes = Math.floor(seconds * 0.016666666666666666);
+  return minutes + ":" + (seconds - minutes * 60).toFixed(2);
+}
+
+function log(stream: NodeJS.WriteStream, message: string) {
+  const isTTY = stream.isTTY;
+  if (isTTY) (stream as any).cursorTo(0);
+  stream.write(message);
+  if (isTTY) (stream as any).clearLine(1);
+  stream.write("\n");
 }
