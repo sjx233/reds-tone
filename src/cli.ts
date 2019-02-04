@@ -22,34 +22,35 @@ commander
   .option("-g, --group-name <name>", "task group name", "music")
   .option("-s, --sound-source <source>", "play sound from <source>", /^(master|music|record|weather|block|hostile|neutral|player|ambient|voice)$/, SoundSource.RECORD)
   .option("-p, --progress", "show progress information")
-  .option("-w, --bar-width <width>", "show progress bar", /^\d+$/, "0")
+  .option("-w, --bar-width <width>", "show progress bar", /^[1-9]\d+$/)
+  .option("--split-threshold", "(advanced)", /^[1-9]\d+$/, "100")
   .parse(process.argv);
 const args = commander.args;
 const options = commander.opts();
 const fileName = args[0];
 if (!fileName) commander.help();
-const { output, packDescription, functionId, groupName, soundSource, progress, barWidth } = options as {
+const { output, packDescription, functionId, groupName, soundSource, progress } = options as {
   output: string,
   packDescription: string,
   functionId: string,
   groupName: string,
   soundSource: SoundSource,
-  progress?: true,
-  barWidth: string
+  progress?: true
 };
 const functionLocation = new ResourceLocation(functionId);
-const progressBarWidth = parseInt(barWidth, 10);
+const barWidth = options.barWidth && parseInt(options.barWidth, 10);
+const splitThreshold = parseInt(options.splitThreshold, 10) || 100;
 
 abstract class Channel {
   public constructor() { }
 
-  public parseEvent(track: Task, taskCache: { [key: string]: Task }, event: MIDIFile.SequentiallyReadEvent | MIDIFile.ConcurrentlyReadEvent) {
+  public parseEvent(segment: Task, baseTime: number, taskCache: { [key: string]: Task }, event: MIDIFile.SequentiallyReadEvent) {
     const param1 = event.param1!;
     switch (event.subtype) {
       case MIDIEvents.EVENT_MIDI_NOTE_ON:
         const playTime = event.playTime * 0.02;
         const { instrument, pitchModifier } = this.playNote(param1 + 1, playTime);
-        track.then(Channel.getTask(taskCache, instrument, event.param2!, pitchModifier), playTime);
+        segment.then(Channel.getTask(taskCache, instrument, event.param2!, pitchModifier), playTime - baseTime);
         break;
       case MIDIEvents.EVENT_MIDI_PROGRAM_CHANGE:
         this.programChange(param1);
@@ -67,9 +68,8 @@ abstract class Channel {
   protected abstract programChange(program: number): void;
 
   protected static getTask(taskCache: { [key: string]: Task }, instrument: Instrument, velocity: number, pitchModifier: number) {
-    const key = `${instrument} ${velocity} ${pitchModifier}`;
-    if (key in taskCache) return taskCache[key];
-    return taskCache[key] = taskGroup.newTask().then(playSound(instrument, soundSource, velocity * 0.01, 2 ** (pitchModifier / 12)));
+    const key = instrument + " " + velocity + " " + pitchModifier;
+    return taskCache[key] || (taskCache[key] = taskGroup.newTask().then(playSound(instrument, soundSource, velocity * 0.01, 2 ** (pitchModifier * 0.08333333333333333))));
   }
 }
 
@@ -171,11 +171,15 @@ class Channel10 extends Channel {
 
 const events: MIDIFile.SequentiallyReadEvent[] = new MIDIFile(fs.readFileSync(fileName === "-" ? 0 : fs.openSync(fileName, "r"))).getMidiEvents();
 const eventCount = events.length;
+const length = Math.round(Math.max(...events.map(event => event.playTime)) * 0.02);
 const taskGroup = new TaskGroup(groupName);
 const track = taskGroup.newTask();
+const segments: Task[] = [];
+for (let i = 0, maxIndex = Math.floor(length / splitThreshold); i <= maxIndex; i++)
+  segments[i] = taskGroup.newTask();
 const taskCache: { [key: string]: Task } = {};
-const progressBarComplete = "█";
-const progressBarIncomplete = "░";
+const barComplete = "█";
+const barIncomplete = "░";
 let progressBar = createProgressBar("parsing events", eventCount);
 const channels: Channel[] = [];
 let eventIndex = 0;
@@ -184,23 +188,23 @@ let eventIndex = 0;
     const event = events[eventIndex];
     if (event.type === MIDIEvents.EVENT_MIDI) {
       const channelId = event.channel!;
-      (channels[channelId] || (channels[channelId] = channelId === 10 ? new Channel10 : new NormalChannel)).parseEvent(track, taskCache, event);
+      const segmentIndex = Math.floor(Math.round(event.playTime * 0.02) / splitThreshold);
+      (channels[channelId] || (channels[channelId] = channelId === 10 ? new Channel10 : new NormalChannel)).parseEvent(segments[segmentIndex], segmentIndex * splitThreshold, taskCache, event);
     }
     eventIndex++;
     progressBar.tick();
     setImmediate(nextEvent);
   } else (async () => {
-    if (progress || progressBarWidth) {
-      const length = Math.round(Math.max(...events.map(event => event.playTime)) * 0.02);
+    if (progress || barWidth) {
       const totalTime = formatTime(length * 0.05);
       for (let i = 0; i < length; i++) {
         const time = formatTime(i * 0.05);
         let text = "";
-        if (progressBarWidth) {
-          const completeLength = Math.round(progressBarWidth * (i / length));
+        if (barWidth) {
+          const completeLength = Math.round(barWidth * (i / length));
           text += "⸨";
-          for (let i = 0; i < completeLength; i++) text += progressBarComplete;
-          for (let i = progressBarWidth; i > completeLength; i--) text += progressBarIncomplete;
+          for (let i = 0; i < completeLength; i++) text += barComplete;
+          for (let i = barWidth; i > completeLength; i--) text += barIncomplete;
           text += "⸩";
         }
         if (progress) {
@@ -209,10 +213,13 @@ let eventIndex = 0;
           text += "/";
           text += totalTime;
         }
-        track.then(taskGroup.newTask().then(`title @a actionbar {"text":${JSON.stringify(text)},"color":"black"}`), i);
+        const segmentIndex = Math.floor(i / splitThreshold);
+        segments[segmentIndex].then(taskGroup.newTask().then(`title @a actionbar {"text":${JSON.stringify(text)},"color":"black"}`), i - segmentIndex * splitThreshold);
       }
       track.then(taskGroup.newTask().then("title @a actionbar \"\""), length);
     }
+    for (let i = 0, len = segments.length; i < len; i++)
+      track.then(segments[i], i * splitThreshold);
     progressBar = createProgressBar("converting notes to functions", taskGroup.taskCount());
     const pack = new Pack(PackType.DATA_PACK, packDescription);
     await taskGroup.addTo(pack, () => progressBar.tick());
@@ -225,8 +232,8 @@ let eventIndex = 0;
 function createProgressBar(action: string, total: number) {
   return new ProgressBar("⸨:bar⸩ :current/:total " + action, {
     clear: true,
-    complete: progressBarComplete,
-    incomplete: progressBarIncomplete,
+    complete: barComplete,
+    incomplete: barIncomplete,
     total,
     width: 18
   });
