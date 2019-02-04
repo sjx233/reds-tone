@@ -22,8 +22,9 @@ commander
   .option("-g, --group-name <name>", "task group name", "music")
   .option("-s, --sound-source <source>", "play sound from <source>", /^(master|music|record|weather|block|hostile|neutral|player|ambient|voice)$/, SoundSource.RECORD)
   .option("-p, --progress", "show progress information")
-  .option("-w, --bar-width <width>", "show progress bar", /^[1-9]\d+$/)
+  .option("-w, --bar-width <width>", "show progress bar", /^\d+$/, "0")
   .option("--split-threshold", "(advanced)", /^[1-9]\d+$/, "100")
+  .option("--noise-reduction-threshold", "(advanced)", /^\d+$/, "0")
   .parse(process.argv);
 const args = commander.args;
 const options = commander.opts();
@@ -38,19 +39,56 @@ const { output, packDescription, functionId, groupName, soundSource, progress } 
   progress?: true
 };
 const functionLocation = new ResourceLocation(functionId);
-const barWidth = options.barWidth && parseInt(options.barWidth, 10);
+const barWidth = parseInt(options.barWidth, 10);
 const splitThreshold = parseInt(options.splitThreshold, 10) || 100;
+const noiseReductionThreshold = parseInt(options.noiseReductionThreshold, 10) * 0.02;
+
+interface PlayingNote {
+  playTime: number;
+  instrument: Instrument;
+  pitchModifier: number;
+  velocity: number;
+  noteId: number;
+}
+
+interface Note {
+  playTime: number;
+  lastTime: number;
+  instrument: Instrument;
+  pitchModifier: number;
+  velocity: number;
+}
 
 abstract class Channel {
+  public notes: Note[] = [];
+  private playingNotes: PlayingNote[] = [];
+
   public constructor() { }
 
-  public parseEvent(segment: Task, baseTime: number, taskCache: { [key: string]: Task }, event: MIDIFile.SequentiallyReadEvent) {
+  public parseEvent(event: MIDIFile.SequentiallyReadEvent) {
     const param1 = event.param1!;
     switch (event.subtype) {
       case MIDIEvents.EVENT_MIDI_NOTE_ON:
         const playTime = event.playTime * 0.02;
-        const { instrument, pitchModifier } = this.playNote(param1 + 1, playTime);
-        segment.then(Channel.getTask(taskCache, instrument, event.param2!, pitchModifier), playTime - baseTime);
+        const playedNote = param1 + 1;
+        this.playingNotes.push({
+          ...this.getNote(playedNote, playTime),
+          noteId: playedNote,
+          playTime,
+          velocity: event.param2!
+        });
+        break;
+      case MIDIEvents.EVENT_MIDI_NOTE_OFF:
+        const stopTime = event.playTime * 0.02;
+        const stoppedNote = param1 + 1;
+        const stoppedIndex = this.playingNotes.findIndex(note => note.noteId === stoppedNote);
+        if (stoppedIndex >= 0) {
+          const note = this.playingNotes.splice(stoppedIndex, 1)[0];
+          this.notes.push({
+            ...note,
+            lastTime: stopTime - note.playTime
+          });
+        } else log(process.stderr, `cannot determine which note to stop at ${stopTime}: note is ${stoppedNote}`);
         break;
       case MIDIEvents.EVENT_MIDI_PROGRAM_CHANGE:
         this.programChange(param1);
@@ -60,17 +98,12 @@ abstract class Channel {
     }
   }
 
-  protected abstract playNote(note: number, playTime: number): {
+  protected abstract getNote(note: number, playTime: number): {
     instrument: Instrument,
     pitchModifier: number
   };
 
   protected abstract programChange(program: number): void;
-
-  protected static getTask(taskCache: { [key: string]: Task }, instrument: Instrument, velocity: number, pitchModifier: number) {
-    const key = instrument + " " + velocity + " " + pitchModifier;
-    return taskCache[key] || (taskCache[key] = taskGroup.newTask().then(playSound(instrument, soundSource, velocity * 0.01, 2 ** (pitchModifier * 0.08333333333333333))));
-  }
 }
 
 class NormalChannel extends Channel {
@@ -86,7 +119,7 @@ class NormalChannel extends Channel {
     super();
   }
 
-  protected playNote(note: number, playTime: number) {
+  protected getNote(note: number, playTime: number) {
     const originalInstrument = this.instrument;
     const instrument = NormalChannel.transformInstrument(originalInstrument, note);
     const offset = NormalChannel.noteOffset(instrument);
@@ -150,7 +183,7 @@ class Channel10 extends Channel {
     super();
   }
 
-  protected playNote(note: number) {
+  protected getNote(note: number) {
     return {
       instrument: Channel10.instrumentFromNote(note),
       pitchModifier: 0
@@ -188,14 +221,23 @@ let eventIndex = 0;
     const event = events[eventIndex];
     if (event.type === MIDIEvents.EVENT_MIDI) {
       const channelId = event.channel!;
-      const segmentIndex = Math.floor(Math.round(event.playTime * 0.02) / splitThreshold);
-      (channels[channelId] || (channels[channelId] = channelId === 10 ? new Channel10 : new NormalChannel)).parseEvent(segments[segmentIndex], segmentIndex * splitThreshold, taskCache, event);
+      (channels[channelId] || (channels[channelId] = channelId === 10 ? new Channel10 : new NormalChannel)).parseEvent(event);
     }
     eventIndex++;
     progressBar.tick();
     setImmediate(nextEvent);
   } else (async () => {
+    const notes = channels.reduce((previous, current) => current ? previous.concat(current.notes) : previous, [] as Note[]);
+    progressBar = createProgressBar("adding notes", notes.length);
+    for (const note of notes)
+      if (note.lastTime >= noiseReductionThreshold) {
+        const playTime = note.playTime;
+        const segmentIndex = Math.floor(playTime / splitThreshold);
+        segments[segmentIndex].then(getTask(taskCache, note.instrument, note.velocity, note.pitchModifier), playTime - segmentIndex * splitThreshold);
+        progressBar.tick();
+      }
     if (progress || barWidth) {
+      progressBar = createProgressBar("adding progress", length);
       const totalTime = formatTime(length * 0.05);
       for (let i = 0; i < length; i++) {
         const time = formatTime(i * 0.05);
@@ -215,6 +257,7 @@ let eventIndex = 0;
         }
         const segmentIndex = Math.floor(i / splitThreshold);
         segments[segmentIndex].then(taskGroup.newTask().then(`title @a actionbar {"text":${JSON.stringify(text)},"color":"black"}`), i - segmentIndex * splitThreshold);
+        progressBar.tick();
       }
       track.then(taskGroup.newTask().then("title @a actionbar \"\""), length);
     }
@@ -228,6 +271,11 @@ let eventIndex = 0;
     await pack.write(output, () => progressBar.tick());
   })();
 })();
+
+function getTask(taskCache: { [key: string]: Task }, instrument: Instrument, velocity: number, pitchModifier: number) {
+  const key = instrument + " " + velocity + " " + pitchModifier;
+  return taskCache[key] || (taskCache[key] = taskGroup.newTask().then(playSound(instrument, soundSource, velocity * 0.01, 2 ** (pitchModifier * 0.08333333333333333))));
+}
 
 function createProgressBar(action: string, total: number) {
   return new ProgressBar("⸨:bar⸩ :current/:total " + action, {
