@@ -6,7 +6,7 @@ import MIDIFile from "midifile";
 import { MinecraftFunction, Pack, PackType } from "minecraft-packs";
 import ProgressBar from "progress";
 import ResourceLocation from "resource-location";
-import { eventsToTask, SoundSource } from "./index";
+import { eventsToNotes, notesToTask, SoundSource } from "./index";
 import { description, name, version } from "./version";
 
 commander
@@ -40,7 +40,9 @@ const barWidth = parseInt(options.barWidth, 10);
 (async () => {
   const events: MIDIFile.SequentiallyReadEvent[] = new MIDIFile(fs.readFileSync(fileName === "-" ? 0 : fs.openSync(fileName, "r"))).getMidiEvents();
   let progressBar = createProgressBar("parsing events", events.length);
-  const { group, functionId } = await eventsToTask(events, groupName, soundSource, progress, barWidth, () => progressBar.tick(), notes => progressBar = createProgressBar("adding notes", notes.length), () => progressBar.tick(), length => progressBar = createProgressBar("adding progress", length), () => progressBar.tick());
+  const notes = eventsToNotes(events, () => progressBar.tick(), message => log(process.stderr, message));
+  progressBar = createProgressBar("adding notes", notes.length);
+  const { group, functionId } = notesToTask(notes, groupName, soundSource, progress, barWidth, () => progressBar.tick(), length => progressBar = createProgressBar("adding progress", length), () => progressBar.tick());
   progressBar = createProgressBar("converting notes to functions", group.taskCount());
   const pack = new Pack(PackType.DATA_PACK, packDescription);
   await group.addTo(pack, () => progressBar.tick());
@@ -57,4 +59,12 @@ function createProgressBar(action: string, total: number) {
     total,
     width: 18
   });
+}
+
+function log(stream: NodeJS.WriteStream, message: string) {
+  const isTTY = stream.isTTY;
+  if (isTTY) (stream as any).cursorTo(0);
+  stream.write(message);
+  if (isTTY) (stream as any).clearLine(1);
+  stream.write("\n");
 }

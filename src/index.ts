@@ -48,10 +48,7 @@ export function playSound(sound: string | ResourceLocation, source: SoundSource,
   return baseCommand;
 }
 
-const barComplete = "█";
-const barIncomplete = "░";
-
-interface Note {
+export interface Note {
   playTime: number;
   instrument: Instrument;
   pitchModifier: number;
@@ -63,7 +60,7 @@ abstract class Channel {
 
   public constructor() { }
 
-  public parseEvent(event: MIDIFile.SequentiallyReadEvent) {
+  public parseEvent(event: MIDIFile.SequentiallyReadEvent, warn?: (message: string) => void) {
     const param1 = event.param1!;
     switch (event.subtype) {
       case MIDIEvents.EVENT_MIDI_NOTE_ON:
@@ -82,7 +79,7 @@ abstract class Channel {
     }
   }
 
-  protected abstract getNote(note: number, playTime: number): {
+  protected abstract getNote(note: number, playTime: number, warn?: (message: string) => void): {
     instrument: Instrument,
     pitchModifier: number
   };
@@ -91,7 +88,7 @@ abstract class Channel {
 }
 
 class NormalChannel extends Channel {
-  private static readonly HARP_LIKE_INSTRUMENTS: { readonly [key: string]: number; } = {
+  private static readonly TRANSFORMABLE_INSTRUMENTS: { readonly [key: string]: number; } = {
     [Instrument.BELL]: 90,
     [Instrument.HARP]: 66,
     [Instrument.GUITAR]: 54,
@@ -103,7 +100,7 @@ class NormalChannel extends Channel {
     super();
   }
 
-  protected getNote(note: number, playTime: number) {
+  protected getNote(note: number, playTime: number, warn?: (message: string) => void) {
     const originalInstrument = this.instrument;
     const instrument = NormalChannel.transformInstrument(originalInstrument, note);
     const offset = NormalChannel.noteOffset(instrument);
@@ -112,7 +109,7 @@ class NormalChannel extends Channel {
       pitchModifier: 0
     };
     const pitchModifier = note - offset - 12;
-    if (pitchModifier > 12 || pitchModifier < -12) log(process.stderr, `failed to correct note at ${Math.round(playTime)}: ${originalInstrument === instrument ? `using ${instrument}, got ${pitchModifier}` : `tried ${originalInstrument} -> ${instrument}, still got ${pitchModifier}`}`);
+    if (warn && (pitchModifier > 12 || pitchModifier < -12)) warn(`failed to correct note at ${Math.round(playTime)}: ${originalInstrument === instrument ? `using ${instrument}, got ${pitchModifier}` : `tried ${originalInstrument} -> ${instrument}, still got ${pitchModifier}`}`);
     return {
       instrument,
       pitchModifier
@@ -134,9 +131,9 @@ class NormalChannel extends Channel {
   }
 
   private static transformInstrument(instrument: Instrument, note: number) {
-    const harpLikeInstruments = NormalChannel.HARP_LIKE_INSTRUMENTS;
-    const originalOffset = harpLikeInstruments[instrument];
-    if (originalOffset) return Object.entries(harpLikeInstruments).map(([instrument, offset]) => [instrument, Math.abs(originalOffset - offset), Math.abs(note - (offset + 12))] as [Instrument, number, number]).reduce((previous, current) => {
+    const transformableInstruments = NormalChannel.TRANSFORMABLE_INSTRUMENTS;
+    const originalOffset = transformableInstruments[instrument];
+    if (originalOffset) return Object.entries(transformableInstruments).map(([instrument, offset]) => [instrument, Math.abs(originalOffset - offset), Math.abs(note - (offset + 12))] as [Instrument, number, number]).reduce((previous, current) => {
       const previousDistance = previous[2];
       const currentDistance = current[2];
       return currentDistance > previousDistance || (currentDistance === previousDistance && current[1] > previous[1]) ? previous : current;
@@ -145,8 +142,8 @@ class NormalChannel extends Channel {
   }
 
   private static noteOffset(instrument: Instrument) {
-    const harpLike = NormalChannel.HARP_LIKE_INSTRUMENTS[instrument];
-    if (harpLike) return harpLike;
+    const transformable = NormalChannel.TRANSFORMABLE_INSTRUMENTS[instrument];
+    if (transformable) return transformable;
     switch (instrument) {
       case Instrument.FLUTE:
         return 78;
@@ -187,38 +184,40 @@ class Channel10 extends Channel {
   }
 }
 
-export async function eventsToTask(events: ReadonlyArray<MIDIFile.SequentiallyReadEvent>, groupName: string, soundSource = SoundSource.RECORD, progress = false, barWidth?: number, parseEventCallback?: (index: number) => void, addNotesStartCallback?: (notes: Note[]) => void, addNoteCallback?: (note: Note) => void, addProgressStartCallback?: (length: number) => void, progressTickCallback?: (tick: number) => void): Promise<Task> {
+export function eventsToNotes(events: ReadonlyArray<MIDIFile.SequentiallyReadEvent>, parseEventCallback?: (index: number) => void, warn?: (message: string) => void) {
   const eventCount = events.length;
-  const length = Math.round(Math.max(...events.map(event => event.playTime)) * 0.02);
-  const taskGroup = new TaskGroup(groupName);
-  const track = taskGroup.newTask();
-  const taskCache: { [key: string]: Task } = {};
   const channels: Channel[] = [];
   for (let i = 0; i < eventCount; i++) {
     const event = events[i];
     if (event.type === MIDIEvents.EVENT_MIDI) {
       const channelId = event.channel!;
-      (channels[channelId] || (channels[channelId] = channelId === 10 ? new Channel10 : new NormalChannel)).parseEvent(event);
+      (channels[channelId] || (channels[channelId] = channelId === 10 ? new Channel10 : new NormalChannel)).parseEvent(event, warn);
     }
     if (parseEventCallback) parseEventCallback(i);
   }
-  const notes = channels.flatMap(channel => channel.notes);
-  if (addNotesStartCallback) addNotesStartCallback(notes);
+  return channels.flatMap(channel => channel.notes);
+}
+
+export function notesToTask(notes: Note[], groupName: string, soundSource = SoundSource.RECORD, progress = false, barWidth?: number, addNoteCallback?: (note: Note) => void, addProgressStartCallback?: (length: number) => void, progressTickCallback?: (tick: number) => void) {
+  const trackLength = Math.round(Math.max(...notes.map(note => note.playTime)));
+  const taskGroup = new TaskGroup(groupName);
+  const track = taskGroup.newTask();
+  const taskCache: { [key: string]: Task } = {};
   for (const note of notes) {
     track.thenRun(getTask(taskGroup, taskCache, soundSource, note.instrument, note.velocity, note.pitchModifier), note.playTime);
     if (addNoteCallback) addNoteCallback(note);
   }
   if (progress || barWidth) {
-    if (addProgressStartCallback) addProgressStartCallback(length);
-    const totalTime = formatTime(length * 0.05);
-    for (let i = 0; i < length; i++) {
+    if (addProgressStartCallback) addProgressStartCallback(trackLength);
+    const totalTime = formatTime(trackLength * 0.05);
+    for (let i = 0; i < trackLength; i++) {
       const time = formatTime(i * 0.05);
       let text = "";
       if (barWidth) {
-        const completeLength = Math.round(barWidth * (i / length));
+        const completeLength = Math.round(barWidth * (i / trackLength));
         text += "⸨";
-        for (let i = 0; i < completeLength; i++) text += barComplete;
-        for (let i = barWidth; i > completeLength; i--) text += barIncomplete;
+        for (let i = 0; i < completeLength; i++) text += "█";
+        for (let i = barWidth; i > completeLength; i--) text += "░";
         text += "⸩";
       }
       if (progress) {
@@ -230,7 +229,7 @@ export async function eventsToTask(events: ReadonlyArray<MIDIFile.SequentiallyRe
       track.thenRun(taskGroup.newTask().thenRun(`title @a actionbar {"text":${JSON.stringify(text)},"color":"black"}`), i);
       if (progressTickCallback) progressTickCallback(i);
     }
-    track.thenRun(taskGroup.newTask().thenRun("title @a actionbar \"\""), length);
+    track.thenRun(taskGroup.newTask().thenRun("title @a actionbar \"\""), trackLength);
   }
   return track;
 }
@@ -243,12 +242,4 @@ function getTask(taskGroup: TaskGroup, taskCache: { [key: string]: Task }, sound
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds * 0.016666666666666666);
   return minutes + ":" + (seconds - minutes * 60).toFixed(2);
-}
-
-function log(stream: NodeJS.WriteStream, message: string) {
-  const isTTY = stream.isTTY;
-  if (isTTY) (stream as any).cursorTo(0);
-  stream.write(message);
-  if (isTTY) (stream as any).clearLine(1);
-  stream.write("\n");
 }
