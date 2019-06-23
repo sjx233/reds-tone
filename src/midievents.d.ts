@@ -72,8 +72,8 @@ declare namespace MIDIEvents {
   const MIDI_2PARAMS_EVENTS: number[];
 
   function createParser(stream: DataView | DataStream, startAt?: number, strictMode?: boolean): Parser;
-  function writeToTrack(events: ReadonlyArray<Event>, destination: Uint8Array, strictMode: boolean): void;
-  function getRequiredBufferLength(events: ReadonlyArray<Event>): number;
+  function writeToTrack(events: readonly Event[], destination: Uint8Array, strictMode: boolean): void;
+  function getRequiredBufferLength(events: readonly Event[]): number;
 }
 
 export = MIDIEvents;

@@ -38,18 +38,44 @@ const { output, packDescription, functionId, groupName, soundSource, progress } 
 const functionLocation = new ResourceLocation(functionId);
 const barWidth = parseInt(options.barWidth, 10);
 
+export interface NoteTransformation {
+  transformableInstruments: readonly Instrument[];
+  transform(channel: Channel, instrument: Instrument, note: number): Instrument;
+}
+
 abstract class Channel {
+  public readonly offsets: { readonly [key: string]: number; };
+  public readonly transformations: readonly NoteTransformation[];
   public notes: Note[] = [];
 
-  public constructor() { }
+  public constructor(offsets: { readonly [key: string]: number; } = {}, transformations: Iterable<NoteTransformation> | ArrayLike<NoteTransformation> = []) {
+    this.offsets = { ...offsets };
+    this.transformations = Array.from(transformations);
+  }
 
   public parseEvent(event: MIDIFile.SequentiallyReadEvent, warn?: (message: string) => void) {
     const param1 = event.param1!;
     switch (event.subtype) {
       case MIDIEvents.EVENT_MIDI_NOTE_ON:
         const playTime = event.playTime * 0.02;
+        let { instrument, note } = this.getNote(param1 + 1);
+        const originalInstrument = instrument;
+        let pitchModifier;
+        if (note >= 0) {
+          const offsets = this.offsets;
+          let offset = offsets[instrument];
+          for (const transformation of this.transformations)
+            if (transformation.transformableInstruments.includes(instrument)) {
+              const newOffset = offsets[instrument = transformation.transform(this, instrument, note)];
+              note += newOffset - offset;
+              offset = newOffset;
+            }
+          pitchModifier = note - offset;
+        } else pitchModifier = 0;
+        if (warn && (pitchModifier > 12 || pitchModifier < -12)) warn(`failed to correct note at ${Math.round(playTime)}: ${originalInstrument === instrument ? `using ${instrument}, got ${pitchModifier}` : `tried ${originalInstrument} -> ${instrument}, still got ${pitchModifier}`}`);
         this.notes.push({
-          ...this.getNote(param1 + 1, playTime, warn),
+          instrument,
+          pitchModifier,
           playTime,
           velocity: event.param2!
         });
@@ -62,40 +88,51 @@ abstract class Channel {
     }
   }
 
-  protected abstract getNote(note: number, playTime: number, warn?: (message: string) => void): {
+  protected abstract getNote(note: number): {
     instrument: Instrument,
-    pitchModifier: number
+    note: number
   };
 
   protected abstract programChange(program: number): void;
 }
 
 class NormalChannel extends Channel {
-  private static readonly TRANSFORMABLE_INSTRUMENTS: { readonly [key: string]: number; } = {
+  private static readonly TRANSFORMABLE_INSTRUMENTS: readonly Instrument[] = [Instrument.BELL, Instrument.HARP, Instrument.GUITAR, Instrument.BASS];
+  private static readonly DEFAULT_OFFSETS: { readonly [key: string]: number; } = {
+    [Instrument.BASS]: 42,
     [Instrument.BELL]: 90,
-    [Instrument.HARP]: 66,
+    [Instrument.FLUTE]: 78,
+    [Instrument.CHIME]: 90,
     [Instrument.GUITAR]: 54,
-    [Instrument.BASS]: 18
+    [Instrument.XYLOPHONE]: 90,
+    [Instrument.HARP]: 66
+  };
+  private static readonly DEFAULT_TRANSFORMATION: NoteTransformation = {
+    transformableInstruments: NormalChannel.TRANSFORMABLE_INSTRUMENTS,
+    transform(channel, instrument, note) {
+      const offsets = channel.offsets;
+      const originalOffset = offsets[instrument];
+      return NormalChannel.TRANSFORMABLE_INSTRUMENTS.map(currentInstrument => {
+        const offset = offsets[currentInstrument];
+        return [currentInstrument, Math.abs(originalOffset - offset), Math.abs(note - offset)] as const;
+      }).reduce((previous, current) => {
+        const previousDistance = previous[2];
+        const currentDistance = current[2];
+        return currentDistance > previousDistance || (currentDistance === previousDistance && current[1] > previous[1]) ? previous : current;
+      })[0];
+    }
   };
   private instrument = Instrument.HARP;
 
-  public constructor() {
-    super();
+  public constructor(offsets: { readonly [key: string]: number; } = NormalChannel.DEFAULT_OFFSETS, transformations: Iterable<NoteTransformation> | ArrayLike<NoteTransformation> = [NormalChannel.DEFAULT_TRANSFORMATION]) {
+    super(offsets, transformations);
   }
 
-  protected getNote(note: number, playTime: number, warn?: (message: string) => void) {
-    const originalInstrument = this.instrument;
-    const instrument = NormalChannel.transformInstrument(originalInstrument, note);
-    const offset = NormalChannel.noteOffset(instrument);
-    if (!offset) return {
-      instrument,
-      pitchModifier: 0
-    };
-    const pitchModifier = note - offset - 12;
-    if (warn && (pitchModifier > 12 || pitchModifier < -12)) warn(`failed to correct note at ${Math.round(playTime)}: ${originalInstrument === instrument ? `using ${instrument}, got ${pitchModifier}` : `tried ${originalInstrument} -> ${instrument}, still got ${pitchModifier}`}`);
+  protected getNote(note: number) {
+    const instrument = this.instrument;
     return {
       instrument,
-      pitchModifier
+      note: instrument in this.offsets ? note : -1
     };
   }
 
@@ -112,37 +149,12 @@ class NormalChannel extends Channel {
     if (program === 105) return Instrument.BANJO;
     return Instrument.HARP;
   }
-
-  private static transformInstrument(instrument: Instrument, note: number) {
-    const transformableInstruments = NormalChannel.TRANSFORMABLE_INSTRUMENTS;
-    const originalOffset = transformableInstruments[instrument];
-    if (originalOffset) return Object.entries(transformableInstruments).map(([instrument, offset]) => [instrument, Math.abs(originalOffset - offset), Math.abs(note - (offset + 12))] as [Instrument, number, number]).reduce((previous, current) => {
-      const previousDistance = previous[2];
-      const currentDistance = current[2];
-      return currentDistance > previousDistance || (currentDistance === previousDistance && current[1] > previous[1]) ? previous : current;
-    })[0];
-    return instrument;
-  }
-
-  private static noteOffset(instrument: Instrument) {
-    const transformable = NormalChannel.TRANSFORMABLE_INSTRUMENTS[instrument];
-    if (transformable) return transformable;
-    switch (instrument) {
-      case Instrument.FLUTE:
-        return 78;
-      case Instrument.CHIME:
-      case Instrument.XYLOPHONE:
-        return 90;
-      default:
-        return undefined;
-    }
-  }
 }
 
 class Channel10 extends Channel {
-  private static readonly SNARE_NOTE_IDS: ReadonlyArray<number> = [37, 38, 40, 49, 51, 52, 54, 55, 57, 58, 59, 69, 70];
-  private static readonly HAT_NOTE_IDS: ReadonlyArray<number> = [42, 44, 46, 73, 74, 75, 76, 77];
-  private static readonly BELL_NOTE_IDS: ReadonlyArray<number> = [53, 56, 67, 68];
+  private static readonly SNARE_NOTE_IDS: readonly number[] = [37, 38, 40, 49, 51, 52, 54, 55, 57, 58, 59, 69, 70];
+  private static readonly HAT_NOTE_IDS: readonly number[] = [42, 44, 46, 73, 74, 75, 76, 77];
+  private static readonly BELL_NOTE_IDS: readonly number[] = [53, 56, 67, 68];
 
   public constructor() {
     super();
@@ -151,7 +163,7 @@ class Channel10 extends Channel {
   protected getNote(note: number) {
     return {
       instrument: Channel10.instrumentFromNote(note),
-      pitchModifier: 0
+      note: -1
     };
   }
 

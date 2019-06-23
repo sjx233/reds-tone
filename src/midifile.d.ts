@@ -8,7 +8,7 @@ declare class MIDIFile {
   getMidiEvents(): MIDIFile.SequentiallyReadEvent[] | MIDIFile.ConcurrentlyReadEvent[];
   getLyrics(): MIDIFile.SequentiallyReadLyricEvent[] | MIDIFile.ConcurrentlyReadLyricEvent[];
   getTrackEvents(index: number): MIDIEvents.Event[];
-  setTrackEvents(index: number, events: ReadonlyArray<MIDIEvents.Event>): void;
+  setTrackEvents(index: number, events: readonly MIDIEvents.Event[]): void;
   deleteTrack(index: number): void;
   addTrack(index: number): void;
   getContent(): ArrayBufferLike;
