@@ -151,7 +151,7 @@ class NormalChannel extends Channel {
   }
 }
 
-class Channel10 extends Channel {
+class SpecialChannel extends Channel {
   private static readonly SNARE_NOTE_IDS: readonly number[] = [37, 38, 40, 49, 51, 52, 54, 55, 57, 58, 59, 69, 70];
   private static readonly HAT_NOTE_IDS: readonly number[] = [42, 44, 46, 73, 74, 75, 76, 77];
   private static readonly BELL_NOTE_IDS: readonly number[] = [53, 56, 67, 68];
@@ -162,7 +162,7 @@ class Channel10 extends Channel {
 
   protected getNote(note: number) {
     return {
-      instrument: Channel10.instrumentFromNote(note),
+      instrument: SpecialChannel.instrumentFromNote(note),
       note: -1
     };
   }
@@ -170,9 +170,9 @@ class Channel10 extends Channel {
   protected programChange() { }
 
   private static instrumentFromNote(note: number) {
-    if (Channel10.SNARE_NOTE_IDS.includes(note)) return Instrument.SNARE;
-    if (Channel10.HAT_NOTE_IDS.includes(note)) return Instrument.HAT;
-    if (Channel10.BELL_NOTE_IDS.includes(note)) return Instrument.BELL;
+    if (SpecialChannel.SNARE_NOTE_IDS.includes(note)) return Instrument.SNARE;
+    if (SpecialChannel.HAT_NOTE_IDS.includes(note)) return Instrument.HAT;
+    if (SpecialChannel.BELL_NOTE_IDS.includes(note)) return Instrument.BELL;
     if (note === 71 || note === 72) return Instrument.FLUTE;
     if (note === 80 || note === 81) return Instrument.CHIME;
     return Instrument.BASEDRUM;
@@ -188,7 +188,7 @@ class Channel10 extends Channel {
     const event = events[i];
     if (event.type === MIDIEvents.EVENT_MIDI) {
       const channelId = event.channel!;
-      (channels[channelId] || (channels[channelId] = channelId === 10 ? new Channel10 : new NormalChannel)).parseEvent(event, message => log(process.stderr, message));
+      (channels[channelId] || (channels[channelId] = channelId === 9 ? new SpecialChannel : new NormalChannel)).parseEvent(event, message => log(process.stderr, message));
     }
     progressBar.tick();
   }
