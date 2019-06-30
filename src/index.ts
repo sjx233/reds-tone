@@ -1,4 +1,5 @@
 import "ecma-proposal-math-extensions";
+import { EventEmitter } from "events";
 import ResourceLocation from "resource-location";
 import { Task, TaskGroup } from "task-function";
 
@@ -53,48 +54,87 @@ export interface Note {
   velocity: number;
 }
 
-export function notesToTask(notes: Note[], groupName: string, soundSource = SoundSource.RECORD, progress = false, barWidth?: number, addNoteCallback?: (note: Note) => void, addProgressStartCallback?: (length: number) => void, progressTickCallback?: (tick: number) => void) {
+export interface ConversionOptions {
+  soundSource?: SoundSource;
+  showTime?: boolean;
+  progressBarWidth?: number;
+}
+
+export interface SyncConversionOptions extends ConversionOptions {
+  callbacks?: {
+    addNote?: (note: Note) => void;
+    progressStart?: (trackLength: number) => void;
+    progressTick?: (tick: number) => void;
+  };
+}
+
+export function convertNotesToTaskSync(notes: Note[], groupName: string, options?: SyncConversionOptions) {
+  const { soundSource, showTime, progressBarWidth, callbacks: { addNote, progressStart, progressTick } } = Object.assign({
+    callbacks: {},
+    progressBarWidth: 0,
+    showTime: false,
+    soundSource: SoundSource.RECORD
+  }, options);
   const trackLength = Math.round(Math.max(...notes.map(note => note.playTime)));
   const taskGroup = new TaskGroup(groupName);
   const track = taskGroup.newTask();
-  const taskCache: { [key: string]: Task } = {};
+  const taskCache = new Map<string, Task>();
   for (const note of notes) {
-    track.thenRun(getTask(taskGroup, taskCache, soundSource, note.instrument, note.velocity, note.pitchModifier), note.playTime);
-    if (addNoteCallback) addNoteCallback(note);
+    const { playTime, instrument, velocity, pitchModifier } = note;
+    const key = [instrument, velocity, pitchModifier].join();
+    let task = taskCache.get(key);
+    if (!task) taskCache.set(key, task = taskGroup.newTask().thenRun(playSound(instrument, soundSource, velocity * 0.01, 2 ** (pitchModifier * 0.08333333333333333 /* 1 / 12 */))));
+    track.thenRun(task, playTime);
+    if (addNote) addNote(note);
   }
-  if (progress || barWidth) {
-    if (addProgressStartCallback) addProgressStartCallback(trackLength);
+  if (showTime || progressBarWidth) {
+    if (progressStart) progressStart(trackLength);
     const totalTime = formatTime(trackLength * 0.05);
     for (let i = 0; i < trackLength; i++) {
       const time = formatTime(i * 0.05);
-      let text = "";
-      if (barWidth) {
-        const completeLength = Math.round(barWidth * (i / trackLength));
-        text += "⸨";
-        for (let i = 0; i < completeLength; i++) text += "█";
-        for (let i = barWidth; i > completeLength; i--) text += "░";
-        text += "⸩";
+      const text: any[][] = [];
+      if (progressBarWidth) {
+        const completeLength = Math.round(progressBarWidth * (i / trackLength));
+        text.push(["⸨", "█".repeat(completeLength), "░".repeat(progressBarWidth - completeLength), "⸩"]);
       }
-      if (progress) {
-        if (text) text += " ";
-        text += time;
-        text += "/";
-        text += totalTime;
-      }
-      track.thenRun(taskGroup.newTask().thenRun(`title @a actionbar {"text":${JSON.stringify(text)},"color":"black"}`), i);
-      if (progressTickCallback) progressTickCallback(i);
+      if (showTime) text.push([time, "/", totalTime]);
+      track.thenRun(taskGroup.newTask().thenRun(`title @a actionbar {"text":${JSON.stringify(text.map(part => part.join("")).join(" "))},"color":"black"}`), i);
+      if (progressTick) progressTick(i);
     }
     track.thenRun(taskGroup.newTask().thenRun("title @a actionbar \"\""), trackLength);
   }
   return track;
 }
 
-function getTask(taskGroup: TaskGroup, taskCache: { [key: string]: Task }, soundSource: SoundSource, instrument: Instrument, velocity: number, pitchModifier: number) {
-  const key = instrument + " " + velocity + " " + pitchModifier;
-  return taskCache[key] || (taskCache[key] = taskGroup.newTask().thenRun(playSound(instrument, soundSource, velocity * 0.01, 2 ** (pitchModifier * 0.08333333333333333))));
+export function convertNotesToTask(notes: Note[], groupName: string, options?: ConversionOptions): EventEmitter {
+  const events = new EventEmitter;
+  (async () => convertNotesToTaskSync(notes, groupName, {
+    ...options,
+    callbacks: {
+      addNote: note => events.emit("addNote", note),
+      progressStart: trackLength => events.emit("progressStart", trackLength),
+      progressTick: tick => events.emit("progressTick", tick),
+    }
+  }))()
+    .then(track => events.emit("end", track))
+    .catch(error => events.emit("error", error));
+  return events;
+}
+
+export function notesToTask(notes: Note[], groupName: string, soundSource?: SoundSource, showTime?: boolean, progressBarWidth?: number, addNoteCallback?: (note: Note) => void, progressStartCallback?: (trackLength: number) => void, progressTickCallback?: (tick: number) => void) {
+  return convertNotesToTaskSync(notes, groupName, {
+    callbacks: {
+      addNote: addNoteCallback,
+      progressStart: progressStartCallback,
+      progressTick: progressTickCallback
+    },
+    progressBarWidth,
+    showTime,
+    soundSource
+  });
 }
 
 function formatTime(seconds: number) {
-  const minutes = Math.floor(seconds * 0.016666666666666666);
+  const minutes = Math.floor(seconds * 0.016666666666666666 /* 1 / 60 */);
   return minutes + ":" + (seconds - minutes * 60).toFixed(2);
 }

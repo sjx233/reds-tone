@@ -7,7 +7,7 @@ import MIDIFile from "midifile";
 import { MinecraftFunction, Pack, PackType } from "minecraft-packs";
 import ProgressBar from "progress";
 import ResourceLocation from "resource-location";
-import { Instrument, Note, notesToTask, SoundSource } from "./index";
+import { convertNotesToTask, Instrument, Note, SoundSource } from "./index";
 import { description, name, version } from "./version";
 
 commander
@@ -15,28 +15,27 @@ commander
   .version(version)
   .description(description)
   .usage("[options] <file>")
-  .option("-o, --output <file>", "place the output into <file>.", "out")
-  .option("-d, --pack-description <description>", "specify data pack description", "")
-  .option("-f, --function-id <id>", "function ID", "music:play")
+  .option("-o, --output <file>", "output file", "out")
+  .option("-d, --pack-description <description>", "data pack description", "")
+  .option("-f, --function-id <id>", "function identifier", "music:play")
   .option("-g, --group-name <name>", "task group name", "music")
-  .option("-s, --sound-source <source>", "play sound from <source>", /^(master|music|record|weather|block|hostile|neutral|player|ambient|voice)$/, SoundSource.RECORD)
-  .option("-p, --progress", "show progress information")
-  .option("-w, --bar-width <width>", "show progress bar", /^\d+$/, "0")
+  .option("-s, --sound-source <source>", "sound source", /^(master|music|record|weather|block|hostile|neutral|player|ambient|voice)$/, SoundSource.RECORD)
+  .option("-t, --show-time", "show time")
+  .option("-w, --progress-bar-width <width>", "progress bar width", /^\d+$/, "0")
+  .option("-p, --progress", "show time (deprecated, use --show-time instead)")
+  .option("--bar-width <width>", "progress bar width (deprecated, use --progress-bar-width instead)", /^\d+$/, "0")
   .parse(process.argv);
 const args = commander.args;
 const options = commander.opts();
 const fileName = args[0];
 if (!fileName) commander.help();
-const { output, packDescription, functionId, groupName, soundSource, progress } = options as {
-  output: string,
-  packDescription: string,
-  functionId: string,
-  groupName: string,
-  soundSource: SoundSource,
-  progress?: true
-};
-const functionLocation = new ResourceLocation(functionId);
-const barWidth = parseInt(options.barWidth, 10);
+const output: string = options.output;
+const packDescription: string = options.packDescription;
+const functionId = new ResourceLocation(options.functionId);
+const groupName: string = options.groupName;
+const soundSource: SoundSource = options.soundSource;
+const showTime: true | undefined = options.showTime || options.progress;
+const progressBarWidth = parseInt(options.progressBarWidth || options.barWidth, 10);
 
 export interface NoteTransformation {
   transformableInstruments: readonly Instrument[];
@@ -180,12 +179,12 @@ class SpecialChannel extends Channel {
 }
 
 (async () => {
-  const events: MIDIFile.SequentiallyReadEvent[] = new MIDIFile(fs.readFileSync(fileName === "-" ? 0 : fs.openSync(fileName, "r"))).getMidiEvents();
-  const eventCount = events.length;
+  const midiEvents: MIDIFile.SequentiallyReadEvent[] = new MIDIFile(fs.readFileSync(fileName === "-" ? 0 : fs.openSync(fileName, "r"))).getMidiEvents();
+  const eventCount = midiEvents.length;
   let progressBar = createProgressBar("parsing events", eventCount);
   const channels: Channel[] = [];
   for (let i = 0; i < eventCount; i++) {
-    const event = events[i];
+    const event = midiEvents[i];
     if (event.type === MIDIEvents.EVENT_MIDI) {
       const channelId = event.channel!;
       (channels[channelId] || (channels[channelId] = channelId === 9 ? new SpecialChannel : new NormalChannel)).parseEvent(event, message => log(process.stderr, message));
@@ -194,13 +193,22 @@ class SpecialChannel extends Channel {
   }
   const notes = channels.flatMap(channel => channel.notes);
   progressBar = createProgressBar("adding notes", notes.length);
-  const { group, functionId } = notesToTask(notes, groupName, soundSource, progress, barWidth, () => progressBar.tick(), length => progressBar = createProgressBar("adding progress", length), () => progressBar.tick());
-  progressBar = createProgressBar("converting notes to functions", group.taskCount());
-  const pack = new Pack(PackType.DATA_PACK, packDescription);
-  await group.addTo(pack, () => progressBar.tick());
-  pack.addResource(new MinecraftFunction(functionLocation, [`function ${functionId}`]));
-  progressBar = createProgressBar("writing files", pack.resourceCount());
-  await pack.write(output, () => progressBar.tick());
+  const events = convertNotesToTask(notes, groupName, {
+    progressBarWidth,
+    showTime,
+    soundSource
+  });
+  events.on("addNote", () => progressBar.tick());
+  events.once("progressStart", length => progressBar = createProgressBar("adding progress information", length));
+  events.on("progressTick", () => progressBar.tick());
+  events.once("end", async ({ group, functionId: task }) => {
+    progressBar = createProgressBar("converting notes to functions", group.taskCount());
+    const pack = new Pack(PackType.DATA_PACK, packDescription);
+    await group.addTo(pack, () => progressBar.tick());
+    pack.addResource(new MinecraftFunction(functionId, [`function ${task}`]));
+    progressBar = createProgressBar("writing files", pack.resourceCount());
+    await pack.write(output, () => progressBar.tick());
+  });
 })();
 
 function createProgressBar(action: string, total: number) {
