@@ -1,10 +1,10 @@
-import fs from "fs";
-import path from "path";
+import fs = require("fs");
+import path = require("path");
 
 const { name: packageName, version, description }: {
-  name: string,
-  version: string,
-  description: string
+  name: string;
+  version: string;
+  description: string;
 } = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../package.json")).toString());
 export const name = packageName.substring(packageName.lastIndexOf("/") + 1);
 export { version, description };

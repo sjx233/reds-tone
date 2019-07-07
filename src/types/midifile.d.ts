@@ -1,4 +1,4 @@
-import MIDIEvents from "midievents";
+import MIDIEvents = require("midievents");
 
 declare class MIDIFile {
   header: MIDIFile.Header;
@@ -15,10 +15,10 @@ declare class MIDIFile {
 }
 
 declare namespace MIDIFile {
-  type SequentiallyReadEvent = MIDIEvents.Event & { playTime: number };
-  type ConcurrentlyReadEvent = SequentiallyReadEvent & { track: number };
-  type SequentiallyReadLyricEvent = SequentiallyReadEvent & { text: string };
-  type ConcurrentlyReadLyricEvent = ConcurrentlyReadEvent & { text: string };
+  type SequentiallyReadEvent = MIDIEvents.Event & { playTime: number; };
+  type ConcurrentlyReadEvent = SequentiallyReadEvent & { track: number; };
+  type SequentiallyReadLyricEvent = SequentiallyReadEvent & { text: string; };
+  type ConcurrentlyReadLyricEvent = ConcurrentlyReadEvent & { text: string; };
 
   class Header {
     static readonly HEADER_LENGTH: number;

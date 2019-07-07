@@ -1,7 +1,8 @@
 import "ecma-proposal-math-extensions";
 import { EventEmitter } from "events";
-import ResourceLocation from "resource-location";
 import { Task, TaskGroup } from "task-function";
+import ResourceLocation = require("resource-location");
+import util = require("util");
 
 export enum Instrument {
   BASS = "block.note_block.bass",
@@ -35,7 +36,7 @@ export enum SoundSource {
   VOICE = "voice"
 }
 
-export function playSound(sound: string | ResourceLocation, source: SoundSource, volume = 1, pitch = 1, minimumVolume = 0) {
+export function playSound(sound: string | ResourceLocation, source: SoundSource, volume = 1, pitch = 1, minimumVolume = 0): string {
   const soundId = ResourceLocation.from(sound);
   const baseCommand = `execute as @a at @s run playsound ${soundId} ${source} @s`;
   volume = Math.max(volume, 0);
@@ -49,7 +50,7 @@ export function playSound(sound: string | ResourceLocation, source: SoundSource,
 
 export interface Note {
   playTime: number;
-  instrument: Instrument;
+  instrument: string;
   pitchModifier: number;
   velocity: number;
 }
@@ -68,7 +69,12 @@ export interface SyncConversionOptions extends ConversionOptions {
   };
 }
 
-export function convertNotesToTaskSync(notes: Note[], groupName: string, options?: SyncConversionOptions) {
+function formatTime(seconds: number): string {
+  const minutes = Math.floor(seconds * 0.016666666666666666 /* 1 / 60 */);
+  return minutes + ":" + (seconds - minutes * 60).toFixed(2);
+}
+
+export function convertNotesToTaskSync(notes: Note[], groupName: string, options?: SyncConversionOptions): Task {
   const { soundSource, showTime, progressBarWidth, callbacks: { addNote, progressStart, progressTick } } = Object.assign({
     callbacks: {},
     progressBarWidth: 0,
@@ -92,7 +98,7 @@ export function convertNotesToTaskSync(notes: Note[], groupName: string, options
     const totalTime = formatTime(trackLength * 0.05);
     for (let i = 0; i < trackLength; i++) {
       const time = formatTime(i * 0.05);
-      const text: any[][] = [];
+      const text: string[][] = [];
       if (progressBarWidth) {
         const completeLength = Math.round(progressBarWidth * (i / trackLength));
         text.push(["⸨", "█".repeat(completeLength), "░".repeat(progressBarWidth - completeLength), "⸩"]);
@@ -121,7 +127,7 @@ export function convertNotesToTask(notes: Note[], groupName: string, options?: C
   return events;
 }
 
-export function notesToTask(notes: Note[], groupName: string, soundSource?: SoundSource, showTime?: boolean, progressBarWidth?: number, addNoteCallback?: (note: Note) => void, progressStartCallback?: (trackLength: number) => void, progressTickCallback?: (tick: number) => void) {
+export const notesToTask = util.deprecate(function notesToTask(notes: Note[], groupName: string, soundSource?: SoundSource, showTime?: boolean, progressBarWidth?: number, addNoteCallback?: (note: Note) => void, progressStartCallback?: (trackLength: number) => void, progressTickCallback?: (tick: number) => void): Task {
   return convertNotesToTaskSync(notes, groupName, {
     callbacks: {
       addNote: addNoteCallback,
@@ -132,9 +138,4 @@ export function notesToTask(notes: Note[], groupName: string, soundSource?: Soun
     showTime,
     soundSource
   });
-}
-
-function formatTime(seconds: number) {
-  const minutes = Math.floor(seconds * 0.016666666666666666 /* 1 / 60 */);
-  return minutes + ":" + (seconds - minutes * 60).toFixed(2);
-}
+}, "");

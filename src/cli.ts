@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 
-import commander from "commander";
-import fs from "fs";
-import MIDIEvents from "midievents";
-import MIDIFile from "midifile";
 import { MinecraftFunction, Pack, PackType } from "minecraft-packs";
-import ProgressBar from "progress";
-import ResourceLocation from "resource-location";
 import { convertNotesToTask, Instrument, Note, SoundSource } from "./index";
 import { description, name, version } from "./version";
+import commander = require("commander");
+import fs = require("fs");
+import MIDIEvents = require("midievents");
+import MIDIFile = require("midifile");
+import ProgressBar = require("progress");
+import ResourceLocation = require("resource-location");
+import tty = require("tty");
 
 commander
   .name(name)
@@ -38,24 +39,33 @@ const showTime: true | undefined = options.showTime || options.progress;
 const progressBarWidth = parseInt(options.progressBarWidth || options.barWidth, 10);
 
 export interface NoteTransformation {
-  transformableInstruments: readonly Instrument[];
-  transform(channel: Channel, instrument: Instrument, note: number): Instrument;
+  transformableInstruments: readonly string[];
+  transform(channel: Channel, instrument: string, note: number): string;
+}
+
+interface ParsedNote {
+  instrument: string;
+  note: number;
+}
+
+interface Offsets {
+  readonly [key: string]: number;
 }
 
 abstract class Channel {
-  public readonly offsets: { readonly [key: string]: number; };
+  public readonly offsets: Offsets;
   public readonly transformations: readonly NoteTransformation[];
   public notes: Note[] = [];
 
-  public constructor(offsets: { readonly [key: string]: number; } = {}, transformations: Iterable<NoteTransformation> | ArrayLike<NoteTransformation> = []) {
+  public constructor(offsets: Offsets = {}, transformations: Iterable<NoteTransformation> | ArrayLike<NoteTransformation> = []) {
     this.offsets = { ...offsets };
     this.transformations = Array.from(transformations);
   }
 
-  public parseEvent(event: MIDIFile.SequentiallyReadEvent, warn?: (message: string) => void) {
-    const param1 = event.param1!;
+  public parseEvent(event: MIDIFile.SequentiallyReadEvent, warn?: (message: string) => void): void {
+    const param1 = event.param1;
     switch (event.subtype) {
-      case MIDIEvents.EVENT_MIDI_NOTE_ON:
+      case MIDIEvents.EVENT_MIDI_NOTE_ON: {
         const playTime = event.playTime * 0.02;
         let { instrument, note } = this.getNote(param1 + 1);
         const originalInstrument = instrument;
@@ -76,9 +86,10 @@ abstract class Channel {
           instrument,
           pitchModifier,
           playTime,
-          velocity: event.param2!
+          velocity: event.param2
         });
         break;
+      }
       case MIDIEvents.EVENT_MIDI_PROGRAM_CHANGE:
         this.programChange(param1);
         break;
@@ -87,16 +98,13 @@ abstract class Channel {
     }
   }
 
-  protected abstract getNote(note: number): {
-    instrument: Instrument,
-    note: number
-  };
+  protected abstract getNote(note: number): ParsedNote;
 
   protected abstract programChange(program: number): void;
 }
 
 class NormalChannel extends Channel {
-  private static readonly TRANSFORMABLE_INSTRUMENTS: readonly Instrument[] = [Instrument.BELL, Instrument.HARP, Instrument.GUITAR, Instrument.BASS];
+  private static readonly TRANSFORMABLE_INSTRUMENTS: readonly string[] = [Instrument.BELL, Instrument.HARP, Instrument.GUITAR, Instrument.BASS];
   private static readonly DEFAULT_OFFSETS: { readonly [key: string]: number; } = {
     [Instrument.BASS]: 42,
     [Instrument.BELL]: 90,
@@ -108,12 +116,12 @@ class NormalChannel extends Channel {
   };
   private static readonly DEFAULT_TRANSFORMATION: NoteTransformation = {
     transformableInstruments: NormalChannel.TRANSFORMABLE_INSTRUMENTS,
-    transform(channel, instrument, note) {
+    transform(channel, instrument, note): string {
       const offsets = channel.offsets;
       const originalOffset = offsets[instrument];
-      return NormalChannel.TRANSFORMABLE_INSTRUMENTS.map(currentInstrument => {
+      return NormalChannel.TRANSFORMABLE_INSTRUMENTS.map((currentInstrument): [string, number, number] => {
         const offset = offsets[currentInstrument];
-        return [currentInstrument, Math.abs(originalOffset - offset), Math.abs(note - offset)] as const;
+        return [currentInstrument, Math.abs(originalOffset - offset), Math.abs(note - offset)];
       }).reduce((previous, current) => {
         const previousDistance = previous[2];
         const currentDistance = current[2];
@@ -121,13 +129,13 @@ class NormalChannel extends Channel {
       })[0];
     }
   };
-  private instrument = Instrument.HARP;
+  private instrument: string = Instrument.HARP;
 
   public constructor(offsets: { readonly [key: string]: number; } = NormalChannel.DEFAULT_OFFSETS, transformations: Iterable<NoteTransformation> | ArrayLike<NoteTransformation> = [NormalChannel.DEFAULT_TRANSFORMATION]) {
     super(offsets, transformations);
   }
 
-  protected getNote(note: number) {
+  protected getNote(note: number): ParsedNote {
     const instrument = this.instrument;
     return {
       instrument,
@@ -135,11 +143,11 @@ class NormalChannel extends Channel {
     };
   }
 
-  protected programChange(program: number) {
+  protected programChange(program: number): void {
     this.instrument = NormalChannel.instrumentFromProgram(program);
   }
 
-  private static instrumentFromProgram(program: number) {
+  private static instrumentFromProgram(program: number): string {
     if (program === 13) return Instrument.XYLOPHONE;
     if (program === 14) return Instrument.BELL;
     if (program >= 24 && program <= 31) return Instrument.GUITAR;
@@ -159,22 +167,44 @@ class SpecialChannel extends Channel {
     super();
   }
 
-  protected getNote(note: number) {
+  protected getNote(note: number): ParsedNote {
     return {
       instrument: SpecialChannel.instrumentFromNote(note),
       note: -1
     };
   }
 
-  protected programChange() { }
+  protected programChange(): void { }
 
-  private static instrumentFromNote(note: number) {
+  private static instrumentFromNote(note: number): string {
     if (SpecialChannel.SNARE_NOTE_IDS.includes(note)) return Instrument.SNARE;
     if (SpecialChannel.HAT_NOTE_IDS.includes(note)) return Instrument.HAT;
     if (SpecialChannel.BELL_NOTE_IDS.includes(note)) return Instrument.BELL;
     if (note === 71 || note === 72) return Instrument.FLUTE;
     if (note === 80 || note === 81) return Instrument.CHIME;
     return Instrument.BASEDRUM;
+  }
+}
+
+function createProgressBar(action: string, total: number): ProgressBar {
+  return new ProgressBar("⸨:bar⸩ :current/:total " + action, {
+    clear: true,
+    complete: "█",
+    incomplete: "░",
+    total,
+    width: 18
+  });
+}
+
+function log(stream: NodeJS.WriteStream, message: string): void {
+  if (stream.isTTY) {
+    (stream as tty.WriteStream).cursorTo(0, undefined as unknown as number);
+    (stream as tty.WriteStream).write(message);
+    (stream as tty.WriteStream).clearLine(1);
+    (stream as tty.WriteStream).write("\n");
+  } else {
+    stream.write(message);
+    stream.write("\n");
   }
 }
 
@@ -186,7 +216,7 @@ class SpecialChannel extends Channel {
   for (let i = 0; i < eventCount; i++) {
     const event = midiEvents[i];
     if (event.type === MIDIEvents.EVENT_MIDI) {
-      const channelId = event.channel!;
+      const channelId = event.channel;
       (channels[channelId] || (channels[channelId] = channelId === 9 ? new SpecialChannel : new NormalChannel)).parseEvent(event, message => log(process.stderr, message));
     }
     progressBar.tick();
@@ -210,21 +240,3 @@ class SpecialChannel extends Channel {
     await pack.write(output, () => progressBar.tick());
   });
 })();
-
-function createProgressBar(action: string, total: number) {
-  return new ProgressBar("⸨:bar⸩ :current/:total " + action, {
-    clear: true,
-    complete: "█",
-    incomplete: "░",
-    total,
-    width: 18
-  });
-}
-
-function log(stream: NodeJS.WriteStream, message: string) {
-  const isTTY = stream.isTTY;
-  if (isTTY) (stream as any).cursorTo(0);
-  stream.write(message);
-  if (isTTY) (stream as any).clearLine(1);
-  stream.write("\n");
-}

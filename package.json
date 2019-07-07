@@ -23,30 +23,31 @@
   },
   "repository": "github:sjx233/reds-tone",
   "scripts": {
-    "lint": "tslint --project .",
-    "lint-fix": "tslint --project . --fix",
-    "build": "rm -rf lib && tsc",
+    "lint": "eslint --ext .js,.ts src",
+    "build": "tsc",
     "test": "node lib/test/test.js",
-    "preversion": "npm run build && npm test",
     "postversion": "git push && git push --tags"
   },
   "dependencies": {
-    "commander": "^2.19.0",
+    "commander": "^2.20.0",
     "ecma-proposal-math-extensions": "0.0.2",
     "midievents": "^2.0.0",
     "midifile": "^2.0.0",
     "minecraft-packs": "^1.0.2",
     "progress": "^2.0.3",
     "resource-location": "^3.0.0",
-    "task-function": "^3.0.0",
-    "tslib": "^1.9.3"
+    "task-function": "^3.0.0"
   },
   "devDependencies": {
     "@types/ecma-proposal-math-extensions": "^0.0.1",
-    "@types/node": "^11.12.2",
+    "@types/fs-extra": "^8.0.0",
+    "@types/node": "^12.0.12",
     "@types/progress": "^2.0.3",
-    "tslint": "^5.14.0",
-    "typescript": "^3.4.1"
+    "@typescript-eslint/eslint-plugin": "^1.11.0",
+    "@typescript-eslint/parser": "^1.11.0",
+    "eslint": "^5.16.0",
+    "fs-extra": "^8.1.0",
+    "typescript": "^3.5.2"
   },
   "engines": {
     "node": ">=11.0.0"
