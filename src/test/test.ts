@@ -24,9 +24,15 @@ function test(name: string, description: string, ...args: string[]): void {
       ...args,
       "test/src.mid"
     ], { stdio })
-      .once("exit", () => fs.close(fd, error => {
-        if (error) process.stderr.write(`error closing log file ${logFile}: ${error}`);
-      }));
+      .once("exit", code => {
+        if (code) {
+          process.stderr.write(`cli exited with code ${code} when processing ${name}`);
+          process.exit(1);
+        }
+        fs.close(fd, error => {
+          if (error) process.stderr.write(`error closing log file ${logFile}: ${error}`);
+        });
+      });
   });
 }
 

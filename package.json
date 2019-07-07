@@ -26,6 +26,7 @@
     "lint": "eslint --ext .js,.ts src",
     "build": "tsc",
     "test": "node lib/test/test.js",
+    "preversion": "npm run build && npm test",
     "postversion": "git push && git push --tags"
   },
   "dependencies": {
