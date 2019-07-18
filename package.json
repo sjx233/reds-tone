@@ -42,13 +42,13 @@
   "devDependencies": {
     "@types/ecma-proposal-math-extensions": "^0.0.1",
     "@types/fs-extra": "^8.0.0",
-    "@types/node": "^12.0.12",
+    "@types/node": "^12.6.8",
     "@types/progress": "^2.0.3",
-    "@typescript-eslint/eslint-plugin": "^1.11.0",
-    "@typescript-eslint/parser": "^1.11.0",
+    "@typescript-eslint/eslint-plugin": "^1.12.0",
+    "@typescript-eslint/parser": "^1.12.0",
     "eslint": "^5.16.0",
     "fs-extra": "^8.1.0",
-    "typescript": "^3.5.2"
+    "typescript": "^3.5.3"
   },
   "engines": {
     "node": ">=11.0.0"
