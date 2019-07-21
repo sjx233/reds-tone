@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { MinecraftFunction, Pack, PackType } from "minecraft-packs";
-import { convertNotesToTask, Instrument, Note, SoundSource } from "./index";
+import { Instrument, Note, SoundSource, Track, trackToTask } from "./index";
 import { description, name, version } from "./version";
 import commander = require("commander");
 import fs = require("fs");
@@ -55,7 +55,7 @@ interface Offsets {
 abstract class Channel {
   public readonly offsets: Offsets;
   public readonly transformations: readonly NoteTransformation[];
-  public notes: Note[] = [];
+  public notes: [number, Note][] = [];
 
   public constructor(offsets: Offsets = {}, transformations: Iterable<NoteTransformation> | ArrayLike<NoteTransformation> = []) {
     this.offsets = { ...offsets };
@@ -66,7 +66,7 @@ abstract class Channel {
     const param1 = event.param1;
     switch (event.subtype) {
       case MIDIEvents.EVENT_MIDI_NOTE_ON: {
-        const playTime = event.playTime * 0.02;
+        const time = event.playTime * 0.02;
         let { instrument, note } = this.getNote(param1 + 1);
         const originalInstrument = instrument;
         let pitchModifier;
@@ -81,13 +81,8 @@ abstract class Channel {
             }
           pitchModifier = note - offset;
         } else pitchModifier = 0;
-        if (warn && (pitchModifier > 12 || pitchModifier < -12)) warn(`failed to correct note at ${Math.round(playTime)}: ${originalInstrument === instrument ? `using ${instrument}, got ${pitchModifier}` : `tried ${originalInstrument} -> ${instrument}, still got ${pitchModifier}`}`);
-        this.notes.push({
-          instrument,
-          pitchModifier,
-          playTime,
-          velocity: event.param2
-        });
+        if (warn && (pitchModifier > 12 || pitchModifier < -12)) warn(`failed to correct note at ${Math.round(time)}: ${originalInstrument === instrument ? `using ${instrument}, got ${pitchModifier}` : `tried ${originalInstrument} -> ${instrument}, still got ${pitchModifier}`}`);
+        this.notes.push([time, new Note(instrument, pitchModifier, event.param2)]);
         break;
       }
       case MIDIEvents.EVENT_MIDI_PROGRAM_CHANGE:
@@ -221,22 +216,15 @@ function log(stream: NodeJS.WriteStream, message: string): void {
     }
     progressBar.tick();
   }
-  const notes = channels.flatMap(channel => channel.notes);
-  progressBar = createProgressBar("adding notes", notes.length);
-  const events = convertNotesToTask(notes, groupName, {
+  const task = trackToTask(new Track(channels.flatMap(channel => channel.notes)), groupName, {
     progressBarWidth,
     showTime,
     soundSource
   });
-  events.on("addNote", () => progressBar.tick());
-  events.once("progressStart", length => progressBar = createProgressBar("adding progress information", length));
-  events.on("progressTick", () => progressBar.tick());
-  events.once("end", async ({ group, functionId: task }) => {
-    progressBar = createProgressBar("converting notes to functions", group.taskCount());
-    const pack = new Pack(PackType.DATA_PACK, packDescription);
-    await group.addTo(pack, () => progressBar.tick());
-    pack.addResource(new MinecraftFunction(functionId, [`function ${task}`]));
-    progressBar = createProgressBar("writing files", pack.resourceCount());
-    await pack.write(output, () => progressBar.tick());
-  });
+  progressBar = createProgressBar("converting notes to functions", task.group.taskCount());
+  const pack = new Pack(PackType.DATA_PACK, packDescription);
+  await task.group.addTo(pack, () => progressBar.tick());
+  pack.addResource(new MinecraftFunction(functionId, ["function " + task.functionId]));
+  progressBar = createProgressBar("writing files", pack.resourceCount());
+  await pack.write(output, () => progressBar.tick());
 })();
