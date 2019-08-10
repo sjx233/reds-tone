@@ -89,7 +89,7 @@ export class Note extends Event {
 }
 
 export class Track extends Event {
-  private static key = 0n;
+  private static key = 0;
   public readonly events: readonly TimedEvent[];
 
   public get length(): number {
