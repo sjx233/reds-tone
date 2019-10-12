@@ -1,5 +1,6 @@
 /src/
 /test/
+/lib/test
 tsconfig.json
-.editorconfig
 .eslintrc.json
+.editorconfig

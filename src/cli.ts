@@ -9,7 +9,6 @@ import MIDIEvents = require("midievents");
 import MIDIFile = require("midifile");
 import ProgressBar = require("progress");
 import ResourceLocation = require("resource-location");
-import tty = require("tty");
 
 commander
   .name(name)
@@ -52,6 +51,8 @@ interface Offsets {
   readonly [key: string]: number;
 }
 
+let bar: ProgressBar;
+
 abstract class Channel {
   public readonly offsets: Offsets;
   public readonly transformations: readonly NoteTransformation[];
@@ -62,7 +63,7 @@ abstract class Channel {
     this.transformations = Array.from(transformations);
   }
 
-  public parseEvent(event: MIDIFile.SequentiallyReadEvent, warn?: (message: string) => void): void {
+  public parseEvent(event: MIDIFile.SequentiallyReadEvent): void {
     const param1 = event.param1;
     switch (event.subtype) {
       case MIDIEvents.EVENT_MIDI_NOTE_ON: {
@@ -81,7 +82,7 @@ abstract class Channel {
             }
           pitchModifier = note - offset;
         } else pitchModifier = 0;
-        if (warn && (pitchModifier > 12 || pitchModifier < -12)) warn(`failed to correct note at ${Math.round(time)}: ${originalInstrument === instrument ? `using ${instrument}, got ${pitchModifier}` : `tried ${originalInstrument} -> ${instrument}, still got ${pitchModifier}`}`);
+        if (process.stderr.isTTY && (pitchModifier > 12 || pitchModifier < -12)) bar.interrupt(`failed to correct note at ${Math.round(time)}: ${originalInstrument === instrument ? `using ${instrument}, got ${pitchModifier}` : `tried ${originalInstrument} -> ${instrument}, still got ${pitchModifier}`}`);
         this.notes.push([time, new Note(instrument, pitchModifier, event.param2)]);
         break;
       }
@@ -169,7 +170,9 @@ class SpecialChannel extends Channel {
     };
   }
 
-  protected programChange(): void { }
+  protected programChange(): void {
+    // The special channel ignores this
+  }
 
   private static instrumentFromNote(note: number): string {
     if (SpecialChannel.SNARE_NOTE_IDS.includes(note)) return Instrument.SNARE;
@@ -182,49 +185,38 @@ class SpecialChannel extends Channel {
 }
 
 function createProgressBar(action: string, total: number): ProgressBar {
-  return new ProgressBar("⸨:bar⸩ :current/:total " + action, {
+  return new ProgressBar("[:bar] :current/:total " + action, {
     clear: true,
-    complete: "█",
-    incomplete: "░",
+    complete: "=",
+    incomplete: " ",
     total,
     width: 18
   });
 }
 
-function log(stream: NodeJS.WriteStream, message: string): void {
-  if (stream.isTTY) {
-    (stream as tty.WriteStream).cursorTo(0, undefined as unknown as number);
-    (stream as tty.WriteStream).write(message);
-    (stream as tty.WriteStream).clearLine(1);
-    (stream as tty.WriteStream).write("\n");
-  } else {
-    stream.write(message);
-    stream.write("\n");
-  }
-}
-
 (async () => {
-  const midiEvents: MIDIFile.SequentiallyReadEvent[] = new MIDIFile(fs.readFileSync(fileName === "-" ? 0 : fs.openSync(fileName, "r"))).getMidiEvents();
-  const eventCount = midiEvents.length;
-  let progressBar = createProgressBar("parsing events", eventCount);
+  const events: MIDIFile.SequentiallyReadEvent[] = new MIDIFile(fs.readFileSync(fileName === "-" ? 0 : fs.openSync(fileName, "r"))).getMidiEvents();
+  const eventCount = events.length;
+  bar = createProgressBar("parsing notes", eventCount);
   const channels: Channel[] = [];
-  for (let i = 0; i < eventCount; i++) {
-    const event = midiEvents[i];
+  for (const event of events) {
+    bar.tick();
     if (event.type === MIDIEvents.EVENT_MIDI) {
       const channelId = event.channel;
-      (channels[channelId] || (channels[channelId] = channelId === 9 ? new SpecialChannel : new NormalChannel)).parseEvent(event, message => log(process.stderr, message));
+      if (!channels[channelId]) channels[channelId] = channelId === 9 ? new SpecialChannel : new NormalChannel;
+      channels[channelId].parseEvent(event);
     }
-    progressBar.tick();
   }
   const task = trackToTask(new Track(channels.flatMap(channel => channel.notes)), groupName, {
     progressBarWidth,
     showTime,
     soundSource
   });
-  progressBar = createProgressBar("converting notes to functions", task.group.taskCount());
   const pack = new Pack(PackType.DATA_PACK, packDescription);
-  await task.group.addTo(pack, () => progressBar.tick());
+  task.group.addTo(pack);
   pack.addResource(new MinecraftFunction(functionId, ["function " + task.functionId]));
-  progressBar = createProgressBar("writing files", pack.resourceCount());
-  await pack.write(output, () => progressBar.tick());
+  bar = createProgressBar("writing files: :id", pack.resourceCount());
+  await pack.write(output, resource => bar.tick({
+    id: resource.id
+  }));
 })();

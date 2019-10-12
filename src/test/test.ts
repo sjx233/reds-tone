@@ -3,18 +3,10 @@ import childProcess = require("child_process");
 import path = require("path");
 
 const datapacksDir = "test/datapacks";
-const logsDir = "test/logs";
 fs.emptyDirSync(datapacksDir);
-fs.emptyDirSync(logsDir);
 
-function test(name: string, description: string, ...args: string[]): void {
-  const logFile = path.join(logsDir, `${name}.log`);
-  fs.open(logFile, "w", (error, fd) => {
-    const stdio: childProcess.StdioOptions = ["ignore", "ignore", fd];
-    if (error) {
-      process.stderr.write(`error opening log file ${logFile}, output will be ignored: ${error}\n`);
-      stdio[2] = "ignore";
-    }
+function test(name: string, description: string, ...args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
     childProcess.spawn(process.argv[0], [
       "lib/cli.js",
       "-o", path.join(datapacksDir, name),
@@ -23,21 +15,23 @@ function test(name: string, description: string, ...args: string[]): void {
       "-g", `test_${name}`,
       ...args,
       "test/src.mid"
-    ], { stdio })
+    ], { stdio: "ignore" })
       .once("exit", code => {
-        if (code) {
-          process.stderr.write(`cli exited with code ${code} when processing ${name}`);
-          process.exit(1);
-        }
-        fs.close(fd, error => {
-          if (error) process.stderr.write(`error closing log file ${logFile}: ${error}`);
-        });
+        if (code) reject(`cli exited with code ${code} when processing ${name}\n`);
+        resolve();
       });
   });
 }
 
-test("simple", "simple");
-test("source_specified", "source specified", "-s", "hostile");
-test("with_time", "with time", "-t");
-test("with_progress_bar", "with progress bar", "-w", "18");
-test("with_time_and_progress_bar", "with time and progress bar", "-t", "-w", "18");
+(async () => {
+  try {
+    await test("simple", "simple");
+    await test("source_specified", "source specified", "-s", "hostile");
+    await test("with_time", "with time", "-t");
+    await test("with_progress_bar", "with progress bar", "-w", "18");
+    await test("with_time_and_progress_bar", "with time and progress bar", "-t", "-w", "18");
+  } catch (e) {
+    process.stderr.write(e);
+    process.exit(1);
+  }
+})();
