@@ -1,7 +1,7 @@
 {
   "name": "@sjx233/reds-tone",
   "version": "1.3.0",
-  "description": "Music in Minecraft 1.14+ datapacks.",
+  "description": "Music in Minecraft 1.15+ datapacks.",
   "keywords": [
     "minecraft",
     "resourcepack",
@@ -30,7 +30,8 @@
     "postversion": "git push && git push --tags"
   },
   "dependencies": {
-    "commander": "^3.0.2",
+    "commander": "^4.0.1",
+    "csv-parse": "^4.8.2",
     "ecma-proposal-math-extensions": "0.0.2",
     "midievents": "^2.0.0",
     "midifile": "^2.0.0",
@@ -41,14 +42,14 @@
   },
   "devDependencies": {
     "@types/ecma-proposal-math-extensions": "^0.0.1",
-    "@types/fs-extra": "^8.0.0",
-    "@types/node": "^12.7.12",
+    "@types/fs-extra": "^8.0.1",
+    "@types/node": "^12.12.14",
     "@types/progress": "^2.0.3",
-    "@typescript-eslint/eslint-plugin": "^2.3.3",
-    "@typescript-eslint/parser": "^2.3.3",
-    "eslint": "^6.5.1",
+    "@typescript-eslint/eslint-plugin": "^2.10.0",
+    "@typescript-eslint/parser": "^2.10.0",
+    "eslint": "^6.7.2",
     "fs-extra": "^8.1.0",
-    "typescript": "^3.6.4"
+    "typescript": "^3.7.3"
   },
   "engines": {
     "node": ">=11.0.0"

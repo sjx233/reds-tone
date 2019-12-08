@@ -1,3 +1,3 @@
 # reds-tone
 
-Music in Minecraft 1.14+ datapacks.
+Music in Minecraft 1.15+ datapacks.
