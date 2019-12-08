@@ -1,67 +1,70 @@
 import { Note } from ".";
 import { getInstrument, Instrument, InstrumentMap } from "./instrument-map";
-import MIDIEvents = require("midievents");
-import MIDIFile = require("midifile");
 
 export abstract class Channel {
-  public notes: [number, Note][] = [];
+  public readonly notes: [number, Note][] = [];
+  private readonly on = new Map<number, [number, number]>();
 
-  public constructor(public readonly percussion: boolean) { }
-
-  public parseEvent(event: MIDIFile.SequentiallyReadEvent): void {
-    switch (event.subtype) {
-      case MIDIEvents.EVENT_MIDI_NOTE_ON:
-        this.notes.push([event.playTime * 0.02, this.getNote(event.param1 + 1, event.param2)]);
-        break;
-      case MIDIEvents.EVENT_MIDI_PROGRAM_CHANGE:
-        this.programChange(event.param1);
-        break;
-      default:
-        break;
-    }
+  public noteOn(time: number, note: number, velocity: number): void {
+    if (this.on.has(note)) this.noteOff(time, note);
+    this.on.set(note, [time, velocity]);
   }
 
-  protected abstract getNote(note: number, velocity: number): Note;
+  public noteOff(time: number, note: number): void {
+    const on = this.on.get(note);
+    if (!on) return;
+    this.on.delete(note);
+    const [startTime, velocity] = on;
+    this.addNote(startTime, time, note, velocity);
+  }
 
-  protected abstract programChange(program: number): void;
+  public abstract programChange(program: number): void;
+
+  public end(time: number): void {
+    for (const [note, [startTime, velocity]] of this.on.entries())
+      this.addNote(startTime, time, note, velocity);
+    this.on.clear();
+  }
+
+  private addNote(startTime: number, endTime: number, note: number, velocity: number): void {
+    const [noteObj, sustain] = this.getNote(note, velocity);
+    this.notes.push([startTime, noteObj]);
+    if (sustain) while (++startTime <= endTime)
+      this.notes.push([startTime, noteObj]);
+  }
+
+  protected abstract getNote(note: number, velocity: number): [Note, boolean];
 }
 
 export class NormalChannel extends Channel {
-  private sound!: string;
-  private velocity!: number;
-  private offset!: number;
+  private instrument: Instrument;
 
   public constructor(private readonly map: InstrumentMap) {
-    super(false);
-    this.setInstrument(map.defaultValue);
+    super();
+    this.instrument = map.defaultValue;
   }
 
-  protected getNote(note: number, velocity: number): Note {
-    return new Note(this.sound, Number.isNaN(this.offset) ? 0 : note - this.offset, velocity * this.velocity);
+  public programChange(program: number): void {
+    this.instrument = getInstrument(this.map, program);
   }
 
-  protected programChange(program: number): void {
-    this.setInstrument(getInstrument(this.map, program));
-  }
-
-  private setInstrument({ sound, velocity, offset }: Instrument): void {
-    this.sound = sound;
-    this.velocity = velocity;
-    this.offset = offset;
+  protected getNote(note: number, velocity: number): [Note, boolean] {
+    const { sound, velocity: baseVelocity, offset, sustain } = this.instrument;
+    return [new Note(sound, Number.isNaN(offset) ? 0 : note - offset, velocity * baseVelocity), sustain];
   }
 }
 
 export class PercussionChannel extends Channel {
   public constructor(private readonly map: InstrumentMap) {
-    super(true);
+    super();
   }
 
-  protected getNote(note: number): Note {
-    const { sound: sound, velocity: volume } = getInstrument(this.map, note);
-    return new Note(sound, 0, volume);
-  }
-
-  protected programChange(): void {
+  public programChange(): void {
     // percussion channels ignore this
+  }
+
+  protected getNote(note: number, velocity: number): [Note, boolean] {
+    const { sound, velocity: baseVelocity, sustain } = getInstrument(this.map, note);
+    return [new Note(sound, 0, velocity * baseVelocity), sustain];
   }
 }

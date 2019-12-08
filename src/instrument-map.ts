@@ -10,6 +10,7 @@ export interface Instrument {
   sound: string;
   velocity: number;
   offset: number;
+  sustain: boolean;
 }
 
 export function readInstrumentMap(filename: string): Promise<InstrumentMap> {
@@ -17,7 +18,6 @@ export function readInstrumentMap(filename: string): Promise<InstrumentMap> {
     let defaultValue: Instrument;
     const instruments = new Map<number, Instrument>();
     const parser = fs.createReadStream(filename).pipe(parse({
-      columns: ["id", "sound", "velocity", "offset"],
       cast(value, { column }) {
         switch (column) {
           case "id":
@@ -26,10 +26,14 @@ export function readInstrumentMap(filename: string): Promise<InstrumentMap> {
             return parseFloat(value);
           case "offset":
             return parseInt(value, 10);
+          case "sustain":
+            return Boolean(value);
           default:
             return value;
         }
-      }
+      },
+      columns: ["id", "sound", "velocity", "offset", "sustain"],
+      trim: true
     }));
     parser.on("readable", () => {
       let line: string[];

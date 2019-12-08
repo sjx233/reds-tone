@@ -84,7 +84,7 @@ export class Note extends Event {
   }
 
   public toTask(group: TaskGroup, source: SoundSource): Task {
-    return group.newTask().thenRun(playSound(this.instrument, source, this.velocity * 0.01, 2 ** (this.pitchModifier / 12)));
+    return group.newTask().thenRun(playSound(this.instrument, source, this.velocity, 2 ** (this.pitchModifier / 12)));
   }
 }
 
@@ -93,10 +93,8 @@ export class Track extends Event {
   public readonly events: readonly TimedEvent[];
 
   public get length(): number {
-    const length = Math.max(...this.events.map(([time, event]) => Math.round(time + event.length)));
-    Object.defineProperty(this, "length", {
-      value: length
-    });
+    const length = Math.max(...this.events.map(([time, event]) => time + event.length));
+    Object.defineProperty(this, "length", { value: length });
     return length;
   }
 
