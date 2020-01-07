@@ -1,37 +1,47 @@
-import MIDIEvents = require("midievents");
+import { Event, LyricsEvent, MIDIEvent, TextEvent } from "midievents";
 
 declare class MIDIFile {
   header: MIDIFile.Header;
   tracks: MIDIFile.Track[];
   constructor(buffer?: ArrayBuffer | Uint8Array);
-  getEvents(type: number, subtype: number): MIDIFile.SequentiallyReadEvent[] | MIDIFile.ConcurrentlyReadEvent[];
-  getMidiEvents(): MIDIFile.SequentiallyReadEvent[] | MIDIFile.ConcurrentlyReadEvent[];
-  getLyrics(): MIDIFile.SequentiallyReadLyricEvent[] | MIDIFile.ConcurrentlyReadLyricEvent[];
-  getTrackEvents(index: number): MIDIEvents.Event[];
-  setTrackEvents(index: number, events: readonly MIDIEvents.Event[]): void;
+  getEvents(type?: number, subtype?: number): MIDIFile.ResolvedEvent[];
+  getMidiEvents(): MIDIFile.ResolvedMIDIEvent[];
+  getLyrics(): MIDIFile.ResolvedLyricEvent[];
+  getTrackEvents(index: number): Event[];
+  setTrackEvents(index: number, events: readonly Event[]): void;
   deleteTrack(index: number): void;
   addTrack(index: number): void;
-  getContent(): ArrayBufferLike;
+  getContent(): ArrayBuffer;
 }
 
 declare namespace MIDIFile {
-  type SequentiallyReadEvent = MIDIEvents.Event & { playTime: number; };
-  type ConcurrentlyReadEvent = SequentiallyReadEvent & { track: number; };
-  type SequentiallyReadLyricEvent = SequentiallyReadEvent & { text: string; };
-  type ConcurrentlyReadLyricEvent = ConcurrentlyReadEvent & { text: string; };
+  type Format = 0 | 1 | 2;
+  type ResolvedEvent = Event & {
+    playTime: number;
+    track?: number;
+  };
+  type ResolvedMIDIEvent = MIDIEvent & {
+    playTime: number;
+    track?: number;
+  };
+  type ResolvedLyricEvent = (LyricsEvent | TextEvent) & {
+    playTime: number;
+    track?: number;
+    text: string;
+  };
 
   class Header {
-    static readonly HEADER_LENGTH: number;
-    static readonly FRAMES_PER_SECONDS: number;
-    static readonly TICKS_PER_BEAT: number;
+    static readonly HEADER_LENGTH: 14;
+    static readonly FRAMES_PER_SECONDS: 1;
+    static readonly TICKS_PER_BEAT: 2;
     datas: DataView;
     constructor(buffer?: ArrayBuffer);
-    getFormat(): number;
-    setFormat(format: number): void;
+    getFormat(): Format;
+    setFormat(format: Format): void;
     getTracksCount(): number;
     setTracksCount(n: number): void;
     getTickResolution(tempo: number): number;
-    getTimeDivision(): number;
+    getTimeDivision(): typeof Header.FRAMES_PER_SECONDS | typeof Header.TICKS_PER_BEAT;
     getTicksPerBeat(): number;
     setTicksPerBeat(ticksPerBeat: number): void;
     getSMPTEFrames(): number;
@@ -40,7 +50,7 @@ declare namespace MIDIFile {
   }
 
   class Track {
-    static readonly HDR_LENGTH: number;
+    static readonly HDR_LENGTH: 8;
     datas: DataView;
     constructor(buffer?: ArrayBuffer, start?: number);
     getTrackLength(): number;

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
+import * as fs from "fs";
+import * as MIDIEvents from "midievents";
 import { MinecraftFunction, Pack, PackType } from "minecraft-packs";
+import * as path from "path";
 import { SoundSource, Track, trackToTask } from ".";
 import { Channel, NormalChannel, PercussionChannel } from "./channel";
 import { InstrumentMap, readInstrumentMap } from "./instrument-map";
 import { description, name, version } from "./version";
 import commander = require("commander");
-import fs = require("fs");
-import path = require("path");
-import MIDIEvents = require("midievents");
 import MIDIFile = require("midifile");
 import ProgressBar = require("progress");
 import ResourceLocation = require("resource-location");

@@ -1,6 +1,6 @@
+import * as childProcess from "child_process";
 import * as fs from "fs-extra";
-import childProcess = require("child_process");
-import path = require("path");
+import * as path from "path";
 
 const datapacksDir = "test/datapacks";
 fs.emptyDirSync(datapacksDir);

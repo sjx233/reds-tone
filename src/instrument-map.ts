@@ -1,5 +1,6 @@
-import fs = require("fs");
-import parse = require("csv-parse");
+import { once } from "events";
+import * as fs from "fs";
+import parseCSV = require("csv-parse");
 
 export interface InstrumentMap {
   defaultValue: Instrument;
@@ -13,45 +14,43 @@ export interface Instrument {
   sustain: boolean;
 }
 
-export function readInstrumentMap(filename: string): Promise<InstrumentMap> {
-  return new Promise((resolve, reject) => {
-    let defaultValue: Instrument;
-    const instruments = new Map<number, Instrument>();
-    const parser = fs.createReadStream(filename).pipe(parse({
-      cast(value, { column }) {
-        switch (column) {
-          case "id":
-            return value === "default" ? value : parseInt(value, 10);
-          case "velocity":
-            return parseFloat(value);
-          case "offset":
-            return parseInt(value, 10);
-          case "sustain":
-            return Boolean(value);
-          default:
-            return value;
-        }
-      },
-      columns: ["id", "sound", "velocity", "offset", "sustain"],
-      trim: true
-    }));
-    parser.on("readable", () => {
-      let line: string[];
-      while ((line = parser.read())) {
-        const { id, ...value } = line as unknown as Instrument & { id: "default" | number; };
-        if (id === "default") {
-          if (defaultValue) reject(new Error("duplicate default instrument"));
-          defaultValue = value;
-        } else {
-          if (instruments.has(id)) reject(new Error(`duplicate instrument ${id}`));
-          instruments.set(id, value);
-        }
+export async function readInstrumentMap(fileName: string): Promise<InstrumentMap> {
+  let defaultValue: Instrument | undefined;
+  const instruments = new Map<number, Instrument>();
+  const parser = fs.createReadStream(fileName).pipe(parseCSV({
+    cast(value, { column }) {
+      switch (column) {
+        case "id":
+          return value === "default" ? value : parseInt(value, 10);
+        case "velocity":
+          return parseFloat(value);
+        case "offset":
+          return parseInt(value, 10);
+        case "sustain":
+          return Boolean(value);
+        default:
+          return value;
       }
-    }).once("end", () => {
-      if (!defaultValue) reject(new Error("no default instrument"));
-      resolve({ defaultValue, instruments });
-    }).once("error", reject);
+    },
+    columns: ["id", "sound", "velocity", "offset", "sustain"],
+    trim: true
+  }));
+  parser.on("readable", () => {
+    let line: Instrument & { id: "default" | number; };
+    while ((line = parser.read())) {
+      const { id, ...value } = line;
+      if (id === "default") {
+        if (defaultValue) throw new Error("duplicate default instrument");
+        defaultValue = value;
+      } else {
+        if (instruments.has(id)) throw new Error(`duplicate instrument ${id}`);
+        instruments.set(id, value);
+      }
+    }
   });
+  await once(parser, "end");
+  if (!defaultValue) throw new Error("no default instrument");
+  return { defaultValue, instruments };
 }
 
 export function getInstrument(map: InstrumentMap, id: number): Instrument {
